@@ -1,0 +1,61 @@
+@echo off
+setlocal
+cd /d "%~dp0"
+
+set "SKIP_BUILD="
+set "SERIAL_MODE="
+if /I "%~1"=="nobuild" set "SKIP_BUILD=1"
+if /I "%~2"=="nobuild" set "SKIP_BUILD=1"
+if /I "%~1"=="serial" set "SERIAL_MODE=1"
+if /I "%~2"=="serial" set "SERIAL_MODE=1"
+
+if not defined SKIP_BUILD (
+    call "%~dp0build.bat"
+    if errorlevel 1 exit /b %errorlevel%
+)
+
+set "ISO=%~dp0bin\Debug\net6.0\AxOS.iso"
+if not exist "%ISO%" (
+    echo ISO not found: %ISO%
+    echo Run build first or remove "nobuild".
+    exit /b 1
+)
+
+set "DATA_IMG=%~dp0axos-data.img"
+
+set "QEMU_EXE="
+if exist "%ProgramFiles%\qemu\qemu-system-i386.exe" set "QEMU_EXE=%ProgramFiles%\qemu\qemu-system-i386.exe"
+if not defined QEMU_EXE if exist "%ProgramFiles(x86)%\qemu\qemu-system-i386.exe" set "QEMU_EXE=%ProgramFiles(x86)%\qemu\qemu-system-i386.exe"
+if not defined QEMU_EXE (
+    where qemu-system-i386.exe >nul 2>nul
+    if errorlevel 1 (
+        echo QEMU was not found.
+        echo Install it from winget:
+        echo   winget install --id SoftwareFreedomConservancy.QEMU
+        exit /b 1
+    )
+    set "QEMU_EXE=qemu-system-i386.exe"
+)
+
+powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0prepare_data_disk.ps1" -ImagePath "%DATA_IMG%" -SizeMB 128
+if errorlevel 1 (
+    echo Failed to prepare FAT data image.
+    exit /b 1
+)
+
+set "DISPLAY_OPTS=-serial stdio"
+if defined SERIAL_MODE (
+    set "DISPLAY_OPTS=-display none -monitor none -serial stdio"
+    echo Running AxOS in serial mode...
+) else (
+    echo Running AxOS...
+)
+
+"%QEMU_EXE%" -cdrom "%ISO%" -boot d -m 256 %DISPLAY_OPTS% -drive file="%DATA_IMG%",format=raw,if=ide,media=disk -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot
+
+set "QEMU_EXIT=%ERRORLEVEL%"
+echo QEMU exited with code %QEMU_EXIT%.
+if not "%QEMU_EXIT%"=="0" if not "%QEMU_EXIT%"=="1" (
+    echo QEMU terminated unexpectedly.
+)
+exit /b %QEMU_EXIT%

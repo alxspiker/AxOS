@@ -1,0 +1,25 @@
+# Build outputs
+bin/
+obj/
+
+# Cosmos build artifacts
+*.iso
+*.bin
+*.asm
+*.obj
+*.map
+axos-data.img
+.qemu-fat/
+.tmp-*/
+
+# User/IDE files
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# OS noise
+.DS_Store
+Thumbs.db
