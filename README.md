@@ -1,15 +1,17 @@
 <p align="center">
   <h1 align="center">🧬 AxOS — A Biologically-Inspired Operating System</h1>
   <p align="center">
-    <em>An operating system that thinks, learns, and evolves — built on Hyperdimensional Computing, not Von Neumann logic.</em>
+    <em>A bare-metal OS with a biologically-inspired cognitive runtime (Hyperdimensional Computing) layered on top of x86 hardware.</em>
   </p>
 </p>
+
+> AxOS is an experimental research operating system exploring Hyperdimensional Computing as a systems architecture primitive.
 
 ---
 
 ## License
 
-**AxOS © 2025-2026 alxspiker. All Rights Reserved.**
+Copyright (c) 2025–2026 alxspiker.
 
 Licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)** — see [LICENSE](LICENSE) file.
 
@@ -28,8 +30,10 @@ For commercial licensing (closed-source use, proprietary integrations, or remova
 2. [What Is AxOS?](#what-is-axos)
 3. [Why Does AxOS Exist?](#why-does-axos-exist)
 4. [Scope & Reality Check](#scope--reality-check)
-5. [Architecture at a Glance](#architecture-at-a-glance)
-6. [The Seven Subsystems](#the-seven-subsystems)
+5. [Terminology](#terminology)
+6. [What the current build demonstrates](#what-the-current-build-demonstrates-qemu-boot-log)
+7. [Architecture at a Glance](#architecture-at-a-glance)
+8. [The Seven Subsystems](#the-seven-subsystems)
    - [Core - The Physics Engine](#1-core--the-physics-engine)
    - [Brain - The Cognitive Layer](#2-brain--the-cognitive-layer)
    - [Kernel - The Autonomic Nervous System](#3-kernel--the-autonomic-nervous-system)
@@ -37,11 +41,12 @@ For commercial licensing (closed-source use, proprietary integrations, or remova
    - [Storage - The Holographic File System](#5-storage--the-holographic-file-system)
    - [Shell - The Exoskeleton](#6-shell--the-exoskeleton)
    - [Diagnostics - The Immune System](#7-diagnostics--the-immune-system)
-7. [How It Actually Works (End-to-End)](#how-it-actually-works-end-to-end)
-8. [Key Concepts for Non-Programmers](#key-concepts-for-non-programmers)
-9. [Building & Running](#building--running)
-10. [Demo Suite](#demo-suite)
-11. [File Reference](#file-reference)
+9. [How It Actually Works (End-to-End)](#how-it-actually-works-end-to-end)
+10. [Key Concepts for Non-Programmers](#key-concepts-for-non-programmers)
+11. [Building & Running](#building--running)
+12. [Demo Suite (Annotated)](#demo-suite---annotated-proof-of-architecture)
+13. [Project Status & Roadmap](#project-status)
+14. [File Reference](#file-reference)
 
 ---
 
@@ -57,7 +62,7 @@ In plain English: **AxOS treats every piece of data - a keystroke, a byte of mac
 
 ## Why Does AxOS Exist?
 
-Traditional operating systems are built on the **Von Neumann architecture**: fetch an instruction, decode it, execute it, repeat. This model is rigid - if the CPU encounters a byte it doesn't have a handler for, the system crashes.
+Traditional operating systems are built on the **Von Neumann architecture**: fetch an instruction, decode it, execute it, repeat. This model is rigid - traditional operating systems rely on explicit dispatch logic. If an instruction or input is not recognized or properly handled, the system faults or aborts.
 
 AxOS proposes a radically different approach:
 
@@ -88,9 +93,47 @@ AxOS is a **real, bootable proof-of-concept** bare-metal OS built with Cosmos (C
 - HardwareSynapse is a **developer framework** for HDC-based signal recognition and fault tolerance. Live keyboard/serial input uses Cosmos primitives; full HDC drivers for complex devices (USB, disk, etc.) are future work.
 - Unknown input is handled gracefully: it triggers System 2 thinking, fatigue, or sandboxing inside a manifold. It does not crash the kernel.
 
-The biological metaphors (metabolism, sleep, DNA mutation, reflexes) are **literal code implementations** - energy budgets, sleep cycles, Ruleset self-mutation, cached hypervector reflexes.
-
 Everything in the Demo Suite has been run on real QEMU boots.
+
+- `Tensor` validates shape/data invariants in **DEBUG builds** to catch shape/length mismatches early (fails fast in development, zero cost in release).
+- QEMU may exit with a non-zero code after the demo suite completes due to an intentional shutdown path; treat the boot log completion as the success criterion.
+
+## Terminology
+
+AxOS uses biological metaphors (metabolism, sleep, DNA, reflexes) as names for concrete mechanisms:
+energy budgets, consolidation passes, ruleset mutation/promotion, and cached triggers.
+They are metaphors for code paths — not claims of literal biology.
+
+## What the current build demonstrates (QEMU boot log)
+
+AxOS currently boots and runs an end-to-end demo suite that demonstrates:
+
+- **Tensor correctness + invariants**: L2 normalization, cosine similarity, bundling behavior, and DEBUG-only invariant validation (`Tensor.ValidateInvariants()`).
+- **Metabolism & sleep**: bounded energy budget, fatigue behavior, and sleep recharge inside the kernel loop.
+- **Manifold isolation**: `ProgramManifold` runs with an allocated energy budget and does not drain the host kernel beyond that allocation.
+- **Deterministic (crystalline) vs tolerant recognition**: exact-match gating can reject tiny corruption (similarity drops below 1.0).
+- **Raw byte ingestion**: a toy binary stream is fetched/decode/handled through a ruleset mapping.
+- **Neuroplastic “learning”**: unknown tokens/opcodes can be consolidated into reflex triggers across a sleep cycle (within the demo’s constrained discovery context).
+- **Geometric calculator**: a minimal instruction sequence produces a correct result (`5 + 7 = 12`) and flushes it to COM1.
+- **Noisy opcode classification**: learns 8 prototype “opcodes” from noisy 32-byte pulses, achieves **100% forced Top-1** (in this controlled demo configuration) on the held-out set, and **rejects an alien pulse** using similarity+margin gates.
+
+> Note: “x86” demos here are **conceptual virtualization experiments** inside HDC space. They do not claim to decode arbitrary real x86 binaries into semantics.
+
+### Real Demo Output (Headlines)
+
+```text
+--- TENSOR MATH SANITY SUITE ---
+sanity_identity: sim(t1, t1) = 1.0000 | norm=1.0000 | peak=50
+sanity_bundle:   sim(bundled, t1) = 0.7071 | sim(bundled, t2) = 0.7071
+
+=== NOISY OPCODE LEARNING DEMO ===
+post_sleep_accuracy: 96/96 (100%)
+alien_pulse: CORRECTLY REJECTED as unknown opcode.
+
+=== BIOLOGICAL CALCULATOR EXECUTION DEMO ===
+STDOUT -> 12
+verify: SUCCESS. Bare metal logic executed perfectly in geometric space.
+```
 
 ---
 
@@ -658,7 +701,7 @@ global_after: energy=426.54/426.54, zombie=False, delta=0.59
 
 ### Demo 2: X86 Hardware Virtualization - "Geometry Replaces Silicon"
 
-> **Why this matters**: This demo proves that CPU instructions don't need dedicated silicon logic gates. AxOS can represent registers, opcodes, and execution as pure geometry - meaning you could theoretically emulate *any* hardware architecture just by defining new tensor mappings.
+> **Why this matters**: This demo shows that instruction semantics can be represented and manipulated geometrically rather than via traditional opcode switch dispatch. AxOS can represent registers, opcodes, and execution as pure geometry - meaning you could theoretically emulate *any* hardware architecture just by defining new tensor mappings.
 
 ```
 === X86 HARDWARE VIRTUALIZATION DEMO ===
@@ -683,13 +726,13 @@ x86_det_corrupt: similarity = 0.99995
 x86_det_fail: SEGMENTATION FAULT DETECTED. Manifold isolated.
 ```
 
-> **The killer proof**: An exact copy of the instruction vector has similarity = 1.0 (perfect). But with a *single float element* perturbed by 0.01, similarity drops to 0.99995 - and the crystalline-mode critic (threshold = 1.0) **rejects it**. AxOS detected a corruption of 0.005% in a 1024-dimensional space. This is more sensitive than traditional ECC memory. **The geometry IS the error correction.**
+> **The killer proof**: An exact copy of the instruction vector has similarity = 1.0 (perfect). But with a *single float element* perturbed by 0.01, similarity drops to 0.99995 - and the crystalline-mode critic (threshold = 1.0) **rejects it**. AxOS detected a corruption of 0.005% in a 1024-dimensional space. The geometry acts as a high-dimensional integrity check — tiny perturbations reduce similarity and can be rejected under strict thresholds.
 
 ---
 
 ### Demo 3: Raw Binary Ingestion - "Feed It Machine Code"
 
-> **Why this matters**: This proves that AxOS doesn't just work with text or semantic data - you can feed it **raw x86 machine code bytes** and it will fetch, decode, and execute them using geometric recognition. No disassembler, no opcode table, no switch statement.
+> **Why this matters**: This proves that AxOS doesn't just work with text or semantic data - you can feed it **raw x86 machine code bytes** and it will fetch, decode, and execute them using geometric recognition. No traditional opcode switch dispatch is used in the execution path — recognition occurs via geometric similarity.
 
 ```
 === RAW BINARY INGESTION DEMO ===
@@ -729,7 +772,7 @@ ribosome: Metamorphosis complete. Switcing to x86_64_Physical context.
 
 ### Demo 5: Neuroplastic Discovery - "The OS Teaches Itself New Opcodes"
 
-> **Why this matters**: This is the signature demo of the entire architecture. It proves that AxOS can encounter **completely unknown data**, struggle with it, go to sleep, and wake up having permanently **rewritten its own DNA** to handle that data instantly. No human intervention. No recompilation. The OS evolved at runtime.
+> **Why this matters**: This is the signature demo of the entire architecture. It proves that AxOS can encounter **completely unknown data**, struggle with it, go to sleep, and wake up having permanently **rewritten its own DNA** to handle that data instantly. No human intervention. No recompilation. The Ruleset was mutated at runtime based on flagged anomalies.
 
 ```
 === NEUROPLASTIC DISCOVERY (KERNEL-INTEGRATED) DEMO ===
@@ -758,13 +801,13 @@ sleep_complete: Reflexes for 0x6A and 0x58 burned into Ruleset.
 
 ```
 --- DISCOVERY PASS 2: SYSTEM 1 REFLEX ---
-discovery_verification: 100% reflex hits. OS has successfully evolved.
+discovery_verification: 100% reflex hits. Ruleset successfully mutated.
 === NEUROPLASTIC DISCOVERY COMPLETE ===
 ```
 
 > Pass 2 feeds the **exact same inputs**. This time: 100% reflex hits. Zero deep thinking. Near-zero energy cost. The system recognizes `0x6A` and `0x58` as instantly as it recognizes `0xC3`, because they are now part of its permanent muscle memory.
 >
-> **What this proves about the architecture**: Any data format, any protocol, any instruction set can be learned dynamically. You don't need to write drivers or parsers. Expose the system to examples, let it struggle, let it sleep, and it will **build its own support** for whatever you threw at it. This is metabolic compilation - the system compiles its own hardware support from environmental exposure.
+> **What this proves about the architecture**: Any data format or protocol can be learned and handled through structured rule definitions and encoding pipelines. This approach significantly reduces the need for explicit branching logic or hand-coded parsers. Expose the system to examples, let it struggle, let it sleep, and it will **consolidate its own reflex support** for the encoded signals. This is metabolic compilation - the system compiles its own adaptive behavior from environmental exposure.
 
 ---
 
@@ -789,7 +832,7 @@ cpu_execute: MOV RBX, 7 -> RBX rotated by 7
 cpu_execute: ADD RAX, RBX -> RAX physically rotated by RBX magnitude (7).
 ```
 
-> Two `MOV` instructions rotate registers RAX and RBX by 5 and 7 positions respectively. The `ADD` instruction measures how far RBX has shifted from its origin (= 7), then rotates RAX by that amount. RAX is now rotated 5 + 7 = 12 positions from its origin. **The arithmetic happened in geometry, not in ALU silicon.**
+> Two `MOV` instructions rotate registers RAX and RBX by 5 and 7 positions respectively. The `ADD` instruction measures how far RBX has shifted from its origin (= 7), then rotates RAX by that amount. RAX is now rotated 5 + 7 = 12 positions from its origin. While the silicon ALU still performs the underlying tensor math, the **high-level arithmetic is resolved end-to-end through geometric state.**
 
 ```
 interrupt_spike: SYSCALL detected. Engaging Peripheral Nerve.
@@ -814,7 +857,49 @@ verify: SUCCESS. Bare metal logic executed perfectly in geometric space.
 > 3. Output the result to real hardware
 > 4. Return the correct answer
 >
-> Change the Ruleset to define different symbols and you can run **anything** - DNA sequence analysis, neural network inference, a Forth interpreter - all through the same geometric pipeline. The architecture doesn't care what the data means. It only cares about shape.
+> The execution pipeline is architecture-agnostic given appropriate symbol and reflex definitions - whether it's DNA sequence analysis, neural network inference, or a Forth interpreter. The architecture doesn't care what the data means. It only cares about shape.
+
+---
+
+### Demo 7: Noisy Opcode Learning - "Robustness Through High-Dimensionality"
+
+> **Why this matters**: Real-world signals are never perfect. This demo proves that AxOS can learn to classify complex, noisy data (32-byte pulses with random jitter) and achieve **100% accuracy** (in this controlled demo configuration) while maintaining the ability to reject completely unknown "alien" signals.
+
+```text
+=== NOISY OPCODE LEARNING DEMO ===
+goal: learn 8 toy opcodes from 32-byte noisy pulses, classify unseen pulses after sleep.
+
+--- POST-SLEEP EVALUATION ---
+post_sleep_accuracy: 96/96 (100%)
+
+--- UNKNOWN OPCODE DETECTION ---
+alien_pulse: max_sim=0.566 margin=0.287 (closest=OP_0)
+alien_verdict: CORRECTLY REJECTED as unknown opcode.
+
+--- CONFUSION MATRIX (Strict-Gated with REJECT) ---
+        OP_0 OP_1 OP_2 OP_3 OP_4 OP_5 OP_6 OP_7 REJECT 
+OP_0    11     0     0     0     0     0     0     0     1  
+...
+strict_total: 96 / 96
+reject_rate:  2/96 (2.08%)
+```
+
+> **The insight**: The system learns 8 prototype "opcodes" from noisy examples. The "baseline" is a **training-example nearest-neighbor** classifier on raw bytes (forced Top-1); AxOS reports both forced accuracy and a strict gated mode (with explicit REJECT). In this run, the HDC system achieved 100% accuracy on recognized samples and had a negligible 2% reject rate. It correctly identified the structured "alien" pulse as unknown because it lacked the high-dimensional geometric fingerprint of the trained set.
+
+---
+
+## Project status
+
+AxOS is an experimental research OS and cognitive runtime. Current focus:
+- **Correctness + Determinism**: Ensuring tensor invariants and numerical stability across reboots.
+- **Demonstrable Learning Loops**: Refining sleep consolidation and reflex promotion for more complex patterns.
+- **Hardware I/O Reliability**: Hardening the serial console and sensory ingestion pipeline.
+- **Architectural Clarity**: Maintaining a strict separation between toy ISA discovery and bare-metal execution.
+
+**Roadmap**:
+- Realistic discovery tasks with measurable generalization.
+- Stronger cognitive sandboxing between manifolds.
+- Persistence + reproducible evaluation harnesses.
 
 ---
 
@@ -851,7 +936,7 @@ verify: SUCCESS. Bare metal logic executed perfectly in geometric space.
 | **Diagnostics** | `KernelTest.cs` | Kernel stress test suite |
 | | `AppDemo.cs` | Proof-of-concept demo suite |
 
-**28 source files** across 7 subsystems - a complete, self-evolving operating system.
+**28 source files across 7 subsystems - a research OS prototype exploring self-modifying rule systems.**
 
 ---
 
