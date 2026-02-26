@@ -8,6 +8,7 @@ using AxOS.Kernel;
 using AxOS.Hardware;
 using AxOS.Storage;
 using AxOS.Diagnostics;
+using System.Diagnostics;
 using System.Text;
 
 namespace AxOS.Core
@@ -21,12 +22,14 @@ namespace AxOS.Core
         {
             Data = Array.Empty<float>();
             Shape = new Shape();
+            ValidateInvariants();
         }
 
         public Tensor(float value)
         {
             Data = new[] { value };
             Shape = new Shape(1);
+            ValidateInvariants();
         }
 
         public Tensor(float[] values)
@@ -41,6 +44,7 @@ namespace AxOS.Core
                 Array.Copy(values, Data, values.Length);
             }
             Shape = new Shape(Data.Length);
+            ValidateInvariants();
         }
 
         public Tensor(Shape shape, float fill = 0.0f)
@@ -49,6 +53,7 @@ namespace AxOS.Core
             int total = Shape.TotalElements;
             Data = new float[total];
             Fill(fill);
+            ValidateInvariants();
         }
 
         public int NDim => Shape.NDim;
@@ -86,11 +91,13 @@ namespace AxOS.Core
 
             float[] dataCopy = new float[Data.Length];
             Array.Copy(Data, dataCopy, Data.Length);
-            return new Tensor
+            Tensor t = new Tensor
             {
                 Data = dataCopy,
                 Shape = newShape.Clone()
             };
+            t.ValidateInvariants();
+            return t;
         }
 
         public Tensor Flatten()
@@ -125,6 +132,17 @@ namespace AxOS.Core
                 sb.Append(']');
             }
             return sb.ToString();
+        }
+
+        [Conditional("DEBUG")]
+        private void ValidateInvariants()
+        {
+            if (Shape == null) throw new InvalidOperationException("Tensor shape cannot be null.");
+            if (Data == null) throw new InvalidOperationException("Tensor data cannot be null.");
+            if (Shape.TotalElements != Data.Length)
+            {
+                throw new InvalidOperationException($"Tensor invariant violation: Shape.Total({Shape.TotalElements}) != Data.Length({Data.Length})");
+            }
         }
 
         public static Tensor Zeros(Shape shape) => new Tensor(shape, 0.0f);
