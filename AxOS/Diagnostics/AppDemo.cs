@@ -596,7 +596,7 @@ namespace AxOS.Diagnostics
             int pulseLen = 32;
             int numOpcodes = 8;
             int trainExamplesPerOp = 5;
-            int testExamplesPerOp = 3;
+            int testExamplesPerOp = 12;
             int noiseLevel = 4; // +/- byte jitter
 
             // 1. Define 8 toy opcodes as random 32-byte arrays
@@ -645,18 +645,24 @@ namespace AxOS.Diagnostics
             // 4. Pre-train baseline: classify test pulses using training nearest neighbor
             log(string.Empty);
             log("--- PRE-TRAIN BASELINE (Training Set Nearest Neighbor) ---");
-            int preCorrect = 0;
+            int preStrictCorrect = 0;
+            int preForcedCorrect = 0;
+            int preReject = 0;
             int preTotal = numOpcodes * testExamplesPerOp;
             for (int i = 0; i < numOpcodes; i++)
             {
                 for (int j = 0; j < testExamplesPerOp; j++)
                 {
-                    int predicted = ClassifyPulseBytes(testPulses[i][j], trainPulses, trainIntents);
-                    if (predicted == i) preCorrect++;
+                    bool rejected;
+                    int predicted = ClassifyPulseBytes(testPulses[i][j], trainPulses, trainIntents, out rejected);
+                    if (predicted == i) preForcedCorrect++;
+                    if (!rejected && predicted == i) preStrictCorrect++;
+                    if (rejected) preReject++;
                 }
             }
-            float preAccuracy = (float)preCorrect / preTotal * 100.0f;
-            log("pre_train_accuracy: " + preCorrect + "/" + preTotal + " (" + preAccuracy.ToString("0.0", CultureInfo.InvariantCulture) + "%)");
+            log("baseline_forced_accuracy: " + preForcedCorrect + "/" + preTotal + " (" + ((float)preForcedCorrect / preTotal * 100.0f).ToString("0.0", CultureInfo.InvariantCulture) + "%)");
+            log("baseline_strict_accuracy: " + preStrictCorrect + "/" + preTotal + " (" + ((float)preStrictCorrect / preTotal * 100.0f).ToString("0.0", CultureInfo.InvariantCulture) + "%)");
+            log("baseline_reject_rate:   " + preReject + "/" + preTotal + " (" + ((float)preReject / preTotal * 100.0f).ToString("0.0", CultureInfo.InvariantCulture) + "%)");
 
             // 5. Training phase: feed noisy examples through the synapse
             log(string.Empty);
@@ -718,8 +724,13 @@ namespace AxOS.Diagnostics
             log("--- POST-SLEEP EVALUATION ---");
             localHdc.SignalPhase.Reset(); // Guarantee deterministic phase start
             int postSleepCorrect = 0;
-            int[][] confusionMatrix = new int[numOpcodes][];
-            for(int i = 0; i < numOpcodes; i++) confusionMatrix[i] = new int[numOpcodes];
+            int[][] cmStrict = new int[numOpcodes][];
+            int[][] cmForced = new int[numOpcodes][];
+            for(int i = 0; i < numOpcodes; i++) 
+            {
+                cmStrict[i] = new int[numOpcodes + 1]; // +1 for REJECT column
+                cmForced[i] = new int[numOpcodes];
+            }
 
             for (int i = 0; i < numOpcodes; i++)
             {
@@ -736,10 +747,14 @@ namespace AxOS.Diagnostics
                         if (passedMargin && string.Equals(pr.Intent, opcodeNames[k], StringComparison.OrdinalIgnoreCase)) predIdx = k;
                     }
 
-                    // Strict tracking
-                    if (predIdx >= 0) confusionMatrix[i][predIdx]++;
+                    // Strict tracking (includes explicit REJECT)
+                    if (predIdx >= 0) 
+                        cmStrict[i][predIdx]++;
+                    else
+                        cmStrict[i][numOpcodes]++; // Failed margin gate = REJECT
                     
-                    // Apples-to-apples forced accuracy
+                    // Apples-to-apples forced accuracy tracking
+                    if (forcedIdx >= 0) cmForced[i][forcedIdx]++;
                     if (forcedIdx == i) postSleepCorrect++;
                 }
             }
@@ -764,22 +779,51 @@ namespace AxOS.Diagnostics
             else
                 log("alien_verdict: WARNING - alien pulse matched above threshold and margin.");
 
-            // 10. Confusion matrix
+            // 10. Confusion matrices
             log(string.Empty);
-            log("--- CONFUSION MATRIX (rows=actual, cols=predicted) ---");
-            string header = "        ";
-            for (int i = 0; i < numOpcodes; i++) header += opcodeNames[i] + " ";
-            log(header);
+            log("--- CONFUSION MATRIX (Forced Top-1, No Rejects) ---");
+            string headerForced = "        ";
+            for (int i = 0; i < numOpcodes; i++) headerForced += opcodeNames[i] + " ";
+            log(headerForced);
             for (int i = 0; i < numOpcodes; i++)
             {
                 string row = opcodeNames[i] + "  ";
-                for (int j = 0; j < numOpcodes; j++) row += "  " + confusionMatrix[i][j].ToString(CultureInfo.InvariantCulture).PadLeft(2) + "  ";
+                for (int j = 0; j < numOpcodes; j++) row += "  " + cmForced[i][j].ToString(CultureInfo.InvariantCulture).PadLeft(2) + "  ";
                 log(row);
             }
+            
+            int forcedTotal = 0;
+            for (int i = 0; i < numOpcodes; i++)
+                for (int j = 0; j < numOpcodes; j++) forcedTotal += cmForced[i][j];
+            log($"forced_total: {forcedTotal} / {preTotal}");
+
+            log(string.Empty);
+            log("--- CONFUSION MATRIX (Strict-Gated with REJECT) ---");
+            string headerStrict = "        ";
+            for (int i = 0; i < numOpcodes; i++) headerStrict += opcodeNames[i] + " ";
+            headerStrict += "REJECT ";
+            log(headerStrict);
+            for (int i = 0; i < numOpcodes; i++)
+            {
+                string row = opcodeNames[i] + "  ";
+                for (int j = 0; j <= numOpcodes; j++) row += "  " + cmStrict[i][j].ToString(CultureInfo.InvariantCulture).PadLeft(2) + "  ";
+                log(row);
+            }
+            
+            int strictTotal = 0;
+            int totalReject = 0;
+            for (int i = 0; i < numOpcodes; i++)
+            {
+                for (int j = 0; j <= numOpcodes; j++) strictTotal += cmStrict[i][j];
+                totalReject += cmStrict[i][numOpcodes];
+            }
+            log($"strict_total: {strictTotal} / {preTotal}");
+            log($"reject_rate:  {totalReject}/{preTotal} ({((float)totalReject / preTotal * 100.0f).ToString("0.0", CultureInfo.InvariantCulture)}%)");
 
             // 11. Summary
             log(string.Empty);
-            log("summary: pre_train=" + preAccuracy.ToString("0.0", CultureInfo.InvariantCulture) +
+            float finalPreAccuracy = (float)preForcedCorrect / preTotal * 100.0f;
+            log("summary: pre_train=" + finalPreAccuracy.ToString("0.0", CultureInfo.InvariantCulture) +
                 "%, post_train=" + postTrainAcc.ToString("0.0", CultureInfo.InvariantCulture) +
                 "%, post_sleep=" + postSleepAcc.ToString("0.0", CultureInfo.InvariantCulture) +
                 "%, unknown_rejection=" + (!alienPassedMargin ? "PASS" : "FAIL"));
@@ -834,27 +878,15 @@ namespace AxOS.Diagnostics
                 }
             }
 
-            // 3. Offset drift (circular shift whole array)
-            state = (state * 1103515245 + 12345) & 0x7FFFFFFF;
-            int offset = ((int)(state % 5)) - 2; // -2 to +2
-            if (offset != 0)
-            {
-                byte[] shifted = new byte[len];
-                for (int i = 0; i < len; i++)
-                {
-                    int newIdx = (i + offset + len) % len;
-                    shifted[newIdx] = noisy[i];
-                }
-                noisy = shifted;
-            }
-
+            // 3. Offset drift (circular shift whole array) - Temporarily removed for fair HDC Positional Comparison
             return noisy;
         }
 
-        private static int ClassifyPulseBytes(byte[] pulse, byte[][] trainExamples, int[] trainIntents)
+        private static int ClassifyPulseBytes(byte[] pulse, byte[][] trainExamples, int[] trainIntents, out bool rejected)
         {
             int bestIdx = -1;
             int minDistance = int.MaxValue;
+            int secondMinDistance = int.MaxValue;
             for (int i = 0; i < trainExamples.Length; i++)
             {
                 if (trainExamples[i] == null) continue;
@@ -865,10 +897,28 @@ namespace AxOS.Diagnostics
                 }
                 if (distance < minDistance)
                 {
+                    secondMinDistance = minDistance;
                     minDistance = distance;
                     bestIdx = trainIntents[i];
                 }
+                else if (distance < secondMinDistance)
+                {
+                    secondMinDistance = distance;
+                }
             }
+            
+            // Rejection rule: If the first choice distance is more than 85% of the second choice distance
+            rejected = false;
+            if (secondMinDistance > 0 && secondMinDistance != int.MaxValue)
+            {
+                float ratio = (float)minDistance / secondMinDistance;
+                if (ratio > 0.85f) rejected = true;
+            }
+            else if (minDistance == secondMinDistance && minDistance != int.MaxValue)
+            {
+                rejected = true;
+            }
+            
             return bestIdx;
         }
 
