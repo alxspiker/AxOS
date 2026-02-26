@@ -31,7 +31,15 @@ namespace AxOS.Core
 
         public Tensor(float[] values)
         {
-            Data = values == null ? Array.Empty<float>() : (float[])values.Clone();
+            if (values == null || values.Length == 0)
+            {
+                Data = Array.Empty<float>();
+            }
+            else
+            {
+                Data = new float[values.Length];
+                Array.Copy(values, Data, values.Length);
+            }
             Shape = new Shape(Data.Length);
         }
 
@@ -55,12 +63,13 @@ namespace AxOS.Core
 
         public Tensor Copy()
         {
-            Tensor t = new Tensor
+            float[] dataCopy = new float[Data.Length];
+            Array.Copy(Data, dataCopy, Data.Length);
+            return new Tensor
             {
-                Data = (float[])Data.Clone(),
+                Data = dataCopy,
                 Shape = Shape.Clone()
             };
-            return t;
         }
 
         public Tensor Reshape(Shape newShape)
@@ -75,12 +84,13 @@ namespace AxOS.Core
                 throw new InvalidOperationException("Reshape size mismatch.");
             }
 
-            Tensor t = new Tensor
+            float[] dataCopy = new float[Data.Length];
+            Array.Copy(Data, dataCopy, Data.Length);
+            return new Tensor
             {
-                Data = (float[])Data.Clone(),
+                Data = dataCopy,
                 Shape = newShape.Clone()
             };
-            return t;
         }
 
         public Tensor Flatten()

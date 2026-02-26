@@ -227,6 +227,11 @@ namespace AxOS.Hardware
             }
 
             result.ComparedReflexes = compared;
+            
+            // NaN and bounds protection
+            if (bestSimilarity != bestSimilarity) bestSimilarity = 0.0f;
+            if (secondBestSimilarity != secondBestSimilarity) secondBestSimilarity = 0.0f;
+
             result.Similarity = bestSimilarity < 0.0f ? 0.0f : bestSimilarity;
             result.SecondBestSimilarity = secondBestSimilarity < 0.0f ? 0.0f : secondBestSimilarity;
             result.Intent = bestIntent;

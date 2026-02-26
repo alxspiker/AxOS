@@ -23,6 +23,9 @@ namespace AxOS.Diagnostics
                 return;
             }
 
+            RunTensorSanityTests(log);
+            log(string.Empty);
+
             KernelLoop.StatusSnapshot globalBefore = kernelLoop.GetStatus();
             log("=== APP MANIFOLD ISOLATION DEMO ===");
             log(
@@ -706,7 +709,9 @@ namespace AxOS.Diagnostics
                     }
                     if (j == 0) // Log 1 example per opcode for diagnostics
                     {
-                        log($"eval: act={opcodeNames[i]} | pred={(string.IsNullOrWhiteSpace(pr.Intent) ? "NONE" : pr.Intent)} | sim={pr.Similarity:F3} | margin={(pr.Similarity - pr.SecondBestSimilarity):F3} | strict_pass={passedMargin}");
+                        float margin = pr.Similarity - pr.SecondBestSimilarity;
+                        if (margin != margin) margin = 0.0f; // NaN guard
+                        log($"eval: act={opcodeNames[i]} | pred={(string.IsNullOrWhiteSpace(pr.Intent) ? "NONE" : pr.Intent)} | sim={pr.Similarity:F3} | margin={margin:F3} | strict_pass={passedMargin}");
                     }
                 }
             }
@@ -737,7 +742,9 @@ namespace AxOS.Diagnostics
                 for (int j = 0; j < testExamplesPerOp; j++)
                 {
                     HardwareSynapse.PulseResult pr = synapse.ProcessSignal(testPulses[i][j]);
-                    bool passedMargin = pr.Recognized && pr.Similarity >= 0.70f && (pr.Similarity - pr.SecondBestSimilarity) >= 0.04f;
+                    float margin = pr.Similarity - pr.SecondBestSimilarity;
+                    if (margin != margin) margin = 0.0f;
+                    bool passedMargin = pr.Recognized && pr.Similarity >= 0.70f && margin >= 0.04f;
                     
                     int predIdx = -1;
                     int forcedIdx = -1;
@@ -769,9 +776,11 @@ namespace AxOS.Diagnostics
             localHdc.SignalPhase.Reset();
             HardwareSynapse.PulseResult alienRes = synapse.ProcessSignal(alienPulse);
             
-            bool alienPassedMargin = alienRes.Recognized && alienRes.Similarity >= 0.70f && (alienRes.Similarity - alienRes.SecondBestSimilarity) >= 0.04f;
+            float alienMargin = alienRes.Similarity - alienRes.SecondBestSimilarity;
+            if (alienMargin != alienMargin) alienMargin = 0.0f;
+            bool alienPassedMargin = alienRes.Recognized && alienRes.Similarity >= 0.70f && alienMargin >= 0.04f;
             log("alien_pulse: max_sim=" + alienRes.Similarity.ToString("0.000", CultureInfo.InvariantCulture) + 
-                " margin=" + (alienRes.Similarity - alienRes.SecondBestSimilarity).ToString("0.000", CultureInfo.InvariantCulture) +
+                " margin=" + alienMargin.ToString("0.000", CultureInfo.InvariantCulture) +
                 " (closest=" + (string.IsNullOrWhiteSpace(alienRes.Intent) ? "none" : alienRes.Intent) + ")");
                 
             if (!alienPassedMargin)
@@ -920,6 +929,66 @@ namespace AxOS.Diagnostics
             }
             
             return bestIdx;
+        }
+
+        private static void RunTensorSanityTests(Action<string> log)
+        {
+            log("--- TENSOR MATH SANITY SUITE ---");
+            int dim = 1024;
+            
+            // 1. Identity Test
+            Tensor t1 = new Tensor(new Shape(dim));
+            t1.Data[50] = 1.0f;
+            t1 = TensorOps.NormalizeL2(t1);
+            double selfSim = TensorOps.CosineSimilarity(t1, t1);
+            float t1Norm = MeasureNorm(t1);
+            int t1Peak = FindPeak(t1);
+            log($"sanity_identity: sim(t1, t1) = {selfSim:F4} | norm={t1Norm:F4} | peak={t1Peak} (expect 1.0, 1.0, 50)");
+
+            // 2. Orthogonality Test
+            Tensor t2 = new Tensor(new Shape(dim));
+            t2.Data[100] = 1.0f;
+            t2 = TensorOps.NormalizeL2(t2);
+            double orthSim = TensorOps.CosineSimilarity(t1, t2);
+            float t2Norm = MeasureNorm(t2);
+            int t2Peak = FindPeak(t2);
+            log($"sanity_ortho: sim(t1, t2) = {orthSim:F4} | norm={t2Norm:F4} | peak={t2Peak} (expect 0.0, 1.0, 100)");
+
+            // 3. Bundling Test
+            Tensor bundled = TensorOps.Bundle(t1, t2);
+            double simA = TensorOps.CosineSimilarity(bundled, t1);
+            double simB = TensorOps.CosineSimilarity(bundled, t2);
+            float bNorm = MeasureNorm(bundled);
+            log($"sanity_bundle: sim(bundled, t1) = {simA:F4} | sim(bundled, t2) = {simB:F4} | norm={bNorm:F4} (expect 0.707, 0.707, 1.0)");
+            
+            // 4. Manual Add Test (Checking aliasing)
+            Tensor manual = t1.Copy();
+            for(int i=0; i<dim; i++) manual.Data[i] += t2.Data[i];
+            manual = TensorOps.NormalizeL2(manual);
+            double manSimB = TensorOps.CosineSimilarity(manual, t2);
+            log($"sanity_manual: sim(manual, t2) = {manSimB:F4} (expect ~0.707)");
+        }
+
+        private static float MeasureNorm(Tensor t)
+        {
+            double sumSq = 0;
+            for (int i = 0; i < t.Data.Length; i++) sumSq += (double)t.Data[i] * t.Data[i];
+            return (float)Math.Sqrt(sumSq);
+        }
+
+        private static int FindPeak(Tensor t)
+        {
+            int peak = -1;
+            float max = -1f;
+            for (int i = 0; i < t.Data.Length; i++)
+            {
+                if (t.Data[i] > max)
+                {
+                    max = t.Data[i];
+                    peak = i;
+                }
+            }
+            return peak;
         }
 
         private static int MeasureGeometricShift(Tensor origin, Tensor mutated)

@@ -43,12 +43,14 @@ namespace AxOS.Core
             double sumSq = 0.0;
             for (int i = 0; i < outVec.Data.Length; i++)
             {
-                float safe = float.IsFinite(outVec.Data[i]) ? outVec.Data[i] : 0.0f;
-                sumSq += safe * safe;
+                float val = outVec.Data[i];
+                // Manual finite check: NaN check (x != x) and Infinity check
+                if (val != val || float.IsInfinity(val)) val = 0.0f;
+                sumSq += (double)val * val;
             }
 
             double norm = Math.Sqrt(sumSq);
-            if (!double.IsFinite(norm) || norm < eps)
+            if (norm != norm || norm < eps) // NaN check + eps
             {
                 outVec.Fill(0.0f);
                 return outVec;
@@ -57,8 +59,9 @@ namespace AxOS.Core
             float inv = (float)(1.0 / norm);
             for (int i = 0; i < outVec.Data.Length; i++)
             {
-                float safe = float.IsFinite(outVec.Data[i]) ? outVec.Data[i] : 0.0f;
-                outVec.Data[i] = safe * inv;
+                float val = outVec.Data[i];
+                if (val != val || float.IsInfinity(val)) val = 0.0f;
+                outVec.Data[i] = val * inv;
             }
 
             return outVec;
@@ -96,8 +99,10 @@ namespace AxOS.Core
             Tensor outVec = lhs.Copy();
             for (int i = 0; i < outVec.Data.Length; i++)
             {
-                float a = float.IsFinite(lhs.Data[i]) ? lhs.Data[i] : 0.0f;
-                float b = float.IsFinite(rhs.Data[i]) ? rhs.Data[i] : 0.0f;
+                float a = lhs.Data[i];
+                float b = rhs.Data[i];
+                if (a != a || float.IsInfinity(a)) a = 0.0f;
+                if (b != b || float.IsInfinity(b)) b = 0.0f;
                 outVec.Data[i] = a + b;
             }
             return normalize ? NormalizeL2(outVec) : outVec;
@@ -105,28 +110,23 @@ namespace AxOS.Core
 
         public static Tensor Permute(Tensor input, int steps)
         {
-            Tensor outVec = input.Copy();
-            int n = outVec.Data.Length;
-            if (n == 0)
-            {
-                return outVec;
-            }
+            if (input == null) return null;
+            int n = input.Data.Length;
+            if (n == 0) return input.Copy();
 
             int mod = steps % n;
             int shift = mod < 0 ? mod + n : mod;
-            if (shift == 0)
-            {
-                return outVec;
-            }
+            if (shift == 0) return input.Copy();
 
             float[] rotated = new float[n];
             for (int i = 0; i < n; i++)
             {
                 int dst = (i + shift) % n;
-                rotated[dst] = outVec.Data[i];
+                rotated[dst] = input.Data[i];
             }
-            outVec = new Tensor(rotated);
-            return outVec;
+            
+            // Re-wrap with original shape to avoid logic "gaslighting"
+            return new Tensor(rotated).Reshape(input.Shape);
         }
 
         public static double CosineSimilarity(Tensor lhs, Tensor rhs, float eps = 1e-8f)
@@ -137,8 +137,13 @@ namespace AxOS.Core
             double rhsSq = 0.0;
             for (int i = 0; i < lhs.Data.Length; i++)
             {
-                double a = float.IsFinite(lhs.Data[i]) ? lhs.Data[i] : 0.0;
-                double b = float.IsFinite(rhs.Data[i]) ? rhs.Data[i] : 0.0;
+                float la = lhs.Data[i];
+                float ra = rhs.Data[i];
+                if (la != la || float.IsInfinity(la)) la = 0.0f;
+                if (ra != ra || float.IsInfinity(ra)) ra = 0.0f;
+
+                double a = (double)la;
+                double b = (double)ra;
                 dot += a * b;
                 lhsSq += a * a;
                 rhsSq += b * b;
@@ -147,7 +152,11 @@ namespace AxOS.Core
             double lhsNorm = Math.Sqrt(lhsSq);
             double rhsNorm = Math.Sqrt(rhsSq);
             double denom = Math.Max(eps, lhsNorm * rhsNorm);
+            
+            if (denom == 0 || denom != denom) return 0.0;
+
             float sim = (float)(dot / denom);
+            if (sim != sim) return 0.0;
             if (sim > 1.0f) return 1.0;
             if (sim < -1.0f) return -1.0;
             return sim;
