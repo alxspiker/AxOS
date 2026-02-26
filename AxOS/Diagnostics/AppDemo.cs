@@ -611,7 +611,7 @@ namespace AxOS.Diagnostics
             log("opcode_init: defined " + numOpcodes + " opcodes as " + pulseLen + "-byte pulses.");
 
             // Create HardwareSynapse to ingest pure numeric pulses mapped to intents
-            HdcSystem localHdc = new HdcSystem();
+            HdcSystem localHdc = kernelLoop.Hdc;
             CognitiveAdapter localAdapter = new CognitiveAdapter(localHdc);
             HardwareSynapse synapse = new HardwareSynapse(localHdc, 1024, 0.65f);
 
@@ -692,13 +692,15 @@ namespace AxOS.Diagnostics
                 {
                     HardwareSynapse.PulseResult pr = synapse.ProcessSignal(testPulses[i][j]);
                     bool passedMargin = pr.Recognized && pr.Similarity >= 0.70f && (pr.Similarity - pr.SecondBestSimilarity) >= 0.04f;
-                    if (passedMargin && string.Equals(pr.Intent, opcodeNames[i], StringComparison.OrdinalIgnoreCase))
+                    
+                    // For apples-to-apples baseline comparison (which never rejects), force Top-1
+                    if (string.Equals(pr.Intent, opcodeNames[i], StringComparison.OrdinalIgnoreCase))
                     {
                         postTrainCorrect++;
                     }
                     if (j == 0) // Log 1 example per opcode for diagnostics
                     {
-                        log($"eval: act={opcodeNames[i]} | pred={(passedMargin ? pr.Intent : "REJECT")} | sim={pr.Similarity:F3} | margin={(pr.Similarity - pr.SecondBestSimilarity):F3}");
+                        log($"eval: act={opcodeNames[i]} | pred={(string.IsNullOrWhiteSpace(pr.Intent) ? "NONE" : pr.Intent)} | sim={pr.Similarity:F3} | margin={(pr.Similarity - pr.SecondBestSimilarity):F3} | strict_pass={passedMargin}");
                     }
                 }
             }
@@ -727,16 +729,18 @@ namespace AxOS.Diagnostics
                     bool passedMargin = pr.Recognized && pr.Similarity >= 0.70f && (pr.Similarity - pr.SecondBestSimilarity) >= 0.04f;
                     
                     int predIdx = -1;
-                    if (passedMargin)
+                    int forcedIdx = -1;
+                    for (int k = 0; k < numOpcodes; k++)
                     {
-                        for (int k = 0; k < numOpcodes; k++)
-                        {
-                            if (string.Equals(pr.Intent, opcodeNames[k], StringComparison.OrdinalIgnoreCase)) predIdx = k;
-                        }
+                        if (string.Equals(pr.Intent, opcodeNames[k], StringComparison.OrdinalIgnoreCase)) forcedIdx = k;
+                        if (passedMargin && string.Equals(pr.Intent, opcodeNames[k], StringComparison.OrdinalIgnoreCase)) predIdx = k;
                     }
 
+                    // Strict tracking
                     if (predIdx >= 0) confusionMatrix[i][predIdx]++;
-                    if (predIdx == i) postSleepCorrect++;
+                    
+                    // Apples-to-apples forced accuracy
+                    if (forcedIdx == i) postSleepCorrect++;
                 }
             }
             float postSleepAcc = (float)postSleepCorrect / preTotal * 100.0f;

@@ -147,7 +147,10 @@ namespace AxOS.Core
             double lhsNorm = Math.Sqrt(lhsSq);
             double rhsNorm = Math.Sqrt(rhsSq);
             double denom = Math.Max(eps, lhsNorm * rhsNorm);
-            return dot / denom;
+            float sim = (float)(dot / denom);
+            if (sim > 1.0f) return 1.0;
+            if (sim < -1.0f) return -1.0;
+            return sim;
         }
 
         private static void RequireCompatible(Tensor lhs, Tensor rhs, string opName)

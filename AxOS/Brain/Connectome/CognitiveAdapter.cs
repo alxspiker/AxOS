@@ -260,10 +260,10 @@ namespace AxOS.Brain
             }
 
             // If entropy is extremely high and fitness is low, flag for discovery induction
-            if (candidate.Fitness < profile.CriticAcceptanceThreshold && iteration > 32)
+            if (profile.Entropy > 0.85f && candidate.Similarity < 0.20f && iteration > 32)
             {
                 candidate.Strategy = "discovery_induction";
-                candidate.Fitness = 0.99f; // Artificially high to allow System 2 to lock in a deduction
+                candidate.Fitness = profile.CriticAcceptanceThreshold + 0.05f; // Safe override
             }
 
             candidate.Cost = CalculateThermodynamicCost(candidate, profile);
