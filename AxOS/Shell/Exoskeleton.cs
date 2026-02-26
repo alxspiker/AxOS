@@ -37,7 +37,7 @@ namespace AxOS
         private DateTime _bootUtc;
         private const int DefaultDim = 1024;
         private const int PreviewValues = 8;
-        private static readonly bool AutoRunStartupTestSequence = false;
+        private static readonly bool AutoRunStartupTestSequence = true;
         private HdcSystem _hdc => _semanticHdc;
 
         public Exoskeleton()

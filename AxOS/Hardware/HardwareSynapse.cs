@@ -271,7 +271,7 @@ namespace AxOS.Hardware
         {
             return new DataStream
             {
-                DatasetType = "signal",
+                DatasetType = "numeric",
                 DatasetId = datasetId,
                 Payload = BuildNumericPayload(rawPulse),
                 DimHint = _dim

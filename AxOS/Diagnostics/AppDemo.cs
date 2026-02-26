@@ -155,6 +155,9 @@ namespace AxOS.Diagnostics
             log(string.Empty);
             RunCalculatorDemo(kernelLoop, writeLine);
 
+            log(string.Empty);
+            RunNoisyOpcodeLearningDemo(kernelLoop, writeLine);
+
             log("=== APP DEMO COMPLETE ===");
         }
 
@@ -580,6 +583,218 @@ namespace AxOS.Diagnostics
             {
                 log("verify: FAILED. Spatial resolution lost.");
             }
+        }
+
+        public static void RunNoisyOpcodeLearningDemo(KernelLoop kernelLoop, Action<string> writeLine = null)
+        {
+            Action<string> log = writeLine ?? Console.WriteLine;
+            if (kernelLoop == null) return;
+
+            log("=== NOISY OPCODE LEARNING DEMO ===");
+            log("goal: learn 8 toy opcodes from 32-byte noisy pulses, classify unseen pulses after sleep.");
+
+            int pulseLen = 32;
+            int numOpcodes = 8;
+            int trainExamplesPerOp = 5;
+            int testExamplesPerOp = 3;
+            int noiseLevel = 4; // +/- byte jitter
+
+            // 1. Define 8 toy opcodes as random 32-byte arrays
+            byte[][] prototypes = new byte[numOpcodes][];
+            string[] opcodeNames = new string[numOpcodes];
+            for (int i = 0; i < numOpcodes; i++)
+            {
+                ulong seed = (ulong)(0xCAFE0000 + i * 7919);
+                prototypes[i] = GenerateRandomPulse(pulseLen, seed);
+                opcodeNames[i] = "OP_" + i.ToString("D2");
+            }
+            log("opcode_init: defined " + numOpcodes + " opcodes as " + pulseLen + "-byte pulses.");
+
+            // Create HardwareSynapse to ingest pure numeric pulses mapped to intents
+            HdcSystem localHdc = new HdcSystem();
+            CognitiveAdapter localAdapter = new CognitiveAdapter(localHdc);
+            HardwareSynapse synapse = new HardwareSynapse(localHdc, 1024, 0.65f);
+
+            // 2. Generate test pulses (unseen, noisier) BEFORE training
+            byte[][][] testPulses = new byte[numOpcodes][][];
+            for (int i = 0; i < numOpcodes; i++)
+            {
+                testPulses[i] = new byte[testExamplesPerOp][];
+                for (int j = 0; j < testExamplesPerOp; j++)
+                {
+                    ulong noiseSeed = (ulong)(0xBEEF0000 + i * 1000 + j * 31);
+                    testPulses[i][j] = AddByteNoise(prototypes[i], noiseSeed, noiseLevel + 2); // 1.5x noise
+                }
+            }
+
+            // 3. Pre-train baseline: classify test pulses using pure byte-wise distance
+            log(string.Empty);
+            log("--- PRE-TRAIN BASELINE (Raw Bytes Nearest Neighbor) ---");
+            int preCorrect = 0;
+            int preTotal = numOpcodes * testExamplesPerOp;
+            for (int i = 0; i < numOpcodes; i++)
+            {
+                for (int j = 0; j < testExamplesPerOp; j++)
+                {
+                    int predicted = ClassifyPulseBytes(testPulses[i][j], prototypes);
+                    if (predicted == i) preCorrect++;
+                }
+            }
+            float preAccuracy = (float)preCorrect / preTotal * 100.0f;
+            log("pre_train_accuracy: " + preCorrect + "/" + preTotal + " (" + preAccuracy.ToString("0.0", CultureInfo.InvariantCulture) + "%)");
+
+            // 4. Training phase: feed noisy examples through the synapse
+            log(string.Empty);
+            log("--- TRAINING PHASE ---");
+            int trainTotal = 0;
+            int trainSuccess = 0;
+            for (int i = 0; i < numOpcodes; i++)
+            {
+                for (int j = 0; j < trainExamplesPerOp; j++)
+                {
+                    ulong noiseSeed = (ulong)(0xFACE0000 + i * 1000 + j * 17);
+                    byte[] noisyExample = AddByteNoise(prototypes[i], noiseSeed, noiseLevel);
+
+                    HardwareSynapse.TrainResult tr = synapse.TrainSignal(noisyExample, opcodeNames[i]);
+                    if (tr.Success) trainSuccess++;
+                    trainTotal++;
+                }
+            }
+            log("training: fed " + trainTotal + " noisy examples. successfully clustered=" + trainSuccess);
+
+            // 5. Post-train (Pre-sleep) Evaluation
+            log(string.Empty);
+            log("--- POST-TRAIN EVALUATION ---");
+            int postTrainCorrect = 0;
+            for (int i = 0; i < numOpcodes; i++)
+            {
+                for (int j = 0; j < testExamplesPerOp; j++)
+                {
+                    HardwareSynapse.PulseResult pr = synapse.ProcessSignal(testPulses[i][j]);
+                    if (pr.Recognized && string.Equals(pr.Intent, opcodeNames[i], StringComparison.OrdinalIgnoreCase))
+                    {
+                        postTrainCorrect++;
+                    }
+                }
+            }
+            float postTrainAcc = (float)postTrainCorrect / preTotal * 100.0f;
+            log("post_train_accuracy: " + postTrainCorrect + "/" + preTotal + " (" + postTrainAcc.ToString("0.0", CultureInfo.InvariantCulture) + "%)");
+
+            // 6. Sleep consolidation
+            log(string.Empty);
+            log("--- SLEEP CONSOLIDATION ---");
+            kernelLoop.TriggerSleepCycle(SleepCycleScheduler.SleepTriggerReason.Manual);
+            log("sleep_complete: anomalies consolidated, energy restored.");
+
+            // 7. Post-sleep evaluation
+            log(string.Empty);
+            log("--- POST-SLEEP EVALUATION ---");
+            int postSleepCorrect = 0;
+            int[][] confusionMatrix = new int[numOpcodes][];
+            for(int i = 0; i < numOpcodes; i++) confusionMatrix[i] = new int[numOpcodes];
+
+            for (int i = 0; i < numOpcodes; i++)
+            {
+                for (int j = 0; j < testExamplesPerOp; j++)
+                {
+                    HardwareSynapse.PulseResult pr = synapse.ProcessSignal(testPulses[i][j]);
+                    int predIdx = -1;
+                    for (int k = 0; k < numOpcodes; k++)
+                    {
+                        if (string.Equals(pr.Intent, opcodeNames[k], StringComparison.OrdinalIgnoreCase)) predIdx = k;
+                    }
+
+                    if (predIdx >= 0) confusionMatrix[i][predIdx]++;
+                    if (pr.Recognized && predIdx == i) postSleepCorrect++;
+                }
+            }
+            float postSleepAcc = (float)postSleepCorrect / preTotal * 100.0f;
+            log("post_sleep_accuracy: " + postSleepCorrect + "/" + preTotal + " (" + postSleepAcc.ToString("0.0", CultureInfo.InvariantCulture) + "%)");
+
+            // 8. Unknown opcode detection
+            log(string.Empty);
+            log("--- UNKNOWN OPCODE DETECTION ---");
+            ulong alienSeed = 0xDEADBEEFUL;
+            byte[] alienPulse = GenerateRandomPulse(pulseLen, alienSeed);
+            HardwareSynapse.PulseResult alienRes = synapse.ProcessSignal(alienPulse);
+
+            log("alien_pulse: max_sim=" + alienRes.Similarity.ToString("0.000", CultureInfo.InvariantCulture) + 
+                " (closest=" + (string.IsNullOrWhiteSpace(alienRes.Intent) ? "none" : alienRes.Intent) + ")");
+            if (!alienRes.Recognized)
+                log("alien_verdict: CORRECTLY REJECTED as unknown opcode.");
+            else
+                log("alien_verdict: WARNING - alien pulse matched above threshold.");
+
+            // 9. Confusion matrix
+            log(string.Empty);
+            log("--- CONFUSION MATRIX (rows=actual, cols=predicted) ---");
+            string header = "        ";
+            for (int i = 0; i < numOpcodes; i++) header += opcodeNames[i] + " ";
+            log(header);
+            for (int i = 0; i < numOpcodes; i++)
+            {
+                string row = opcodeNames[i] + "  ";
+                for (int j = 0; j < numOpcodes; j++) row += "  " + confusionMatrix[i][j].ToString(CultureInfo.InvariantCulture).PadLeft(2) + "  ";
+                log(row);
+            }
+
+            // 10. Summary
+            log(string.Empty);
+            log("summary: pre_train=" + preAccuracy.ToString("0.0", CultureInfo.InvariantCulture) +
+                "%, post_train=" + postTrainAcc.ToString("0.0", CultureInfo.InvariantCulture) +
+                "%, post_sleep=" + postSleepAcc.ToString("0.0", CultureInfo.InvariantCulture) +
+                "%, unknown_rejection=" + (!alienRes.Recognized ? "PASS" : "FAIL"));
+
+            log("=== NOISY OPCODE LEARNING COMPLETE ===");
+        }
+
+        private static byte[] GenerateRandomPulse(int length, ulong seed)
+        {
+            byte[] pulse = new byte[length];
+            ulong state = seed;
+            for (int i = 0; i < length; i++)
+            {
+                state = (state * 1103515245 + 12345) & 0x7FFFFFFF;
+                pulse[i] = (byte)(state % 256);
+            }
+            return pulse;
+        }
+
+        private static byte[] AddByteNoise(byte[] prototype, ulong seed, int noiseLevel)
+        {
+            byte[] noisy = new byte[prototype.Length];
+            ulong state = seed;
+            for (int i = 0; i < prototype.Length; i++)
+            {
+                state = (state * 1103515245 + 12345) & 0x7FFFFFFF;
+                int drift = (int)(state % (ulong)(noiseLevel * 2 + 1)) - noiseLevel;
+                int val = prototype[i] + drift;
+                if (val < 0) val = 0;
+                if (val > 255) val = 255;
+                noisy[i] = (byte)val;
+            }
+            return noisy;
+        }
+
+        private static int ClassifyPulseBytes(byte[] pulse, byte[][] prototypes)
+        {
+            int bestIdx = -1;
+            int minDistance = int.MaxValue;
+            for (int i = 0; i < prototypes.Length; i++)
+            {
+                if (prototypes[i] == null) continue;
+                int distance = 0;
+                for (int d = 0; d < pulse.Length; d++)
+                {
+                    distance += Math.Abs(pulse[d] - prototypes[i][d]);
+                }
+                if (distance < minDistance)
+                {
+                    minDistance = distance;
+                    bestIdx = i;
+                }
+            }
+            return bestIdx;
         }
 
         private static int MeasureGeometricShift(Tensor origin, Tensor mutated)
