@@ -391,7 +391,7 @@ Each "program" in AxOS runs inside its own **ProgramManifold** - a completely is
 2. For each anomaly, **mutates the Ruleset** by adding the anomaly's deduced constraint as a new symbol definition.
 3. Creates new `ReflexTrigger` entries so the system will recognize the anomaly instantly next time.
 
-This means **programs literally rewrite their own DNA during sleep** based on what they couldn't handle while awake.
+This means **programs effectively mutate their own rulesets during sleep** based on what they couldn't handle while awake.
 
 #### `Ruleset.cs` - Program DNA
 A simple configuration object that defines a program's genetic makeup:
@@ -626,7 +626,7 @@ kernel_status: energy=429.52/429.52, energy_pct=100, fatigue=120.26, fatigue_rat
     zombie_at=85.90, zombie_ratio=0.2, zombie_critic=0.95, zombie=False
 ```
 
-> **What this proves**: The metabolism booted at 100% energy with fatigue kicking in at 28% and zombie mode at 20%. These aren't magic numbers - they're derived from the physical substrate. Give AxOS more RAM, and it gets a bigger energy budget. Give it less, and it tightens its belt. **The OS adapts to whatever hardware you put it on.**
+> **What this proves**: The metabolism booted at 100% energy with fatigue kicking in at 28% and zombie mode at 20%. These aren't magic numbers - they're derived from the physical substrate. Give AxOS more RAM, and it gets a bigger energy budget. Give it less, and it tightens its belt. **The OS energy model scales based on the underlying hardware.**
 
 ```
 [INGEST: SMOKE TEST]
@@ -658,7 +658,7 @@ kernel_diagnostics_pass=True
 
 ### Demo 1: App Manifold Isolation - "Programs Are Organisms"
 
-> **Why this matters**: In a traditional OS, programs share the same CPU and memory bus. If one program misbehaves, it can crash the whole system. In AxOS, each program runs inside its own **ProgramManifold** - a completely isolated cognitive organism with its own brain, metabolism, and DNA. This demo proves that isolation works.
+> **Why this matters**: In a traditional OS, programs share the same CPU and memory bus. If one program misbehaves, it can crash the whole system. In AxOS, each program runs inside its own **ProgramManifold** - an isolated runtime environment with its own dedicated brain, metabolism, and ruleset (DNA). This demo proves that isolation works.
 
 ```
 === APP MANIFOLD ISOLATION DEMO ===
@@ -689,7 +689,7 @@ app_run2: processed=1, deep=0, reflex=1, zombie=0
 app_after_run2: energy=62.81, zombie=False
 ```
 
-> **Pass 2**: The **same input** is now processed via **System 1 reflex** (deep=0, reflex=1). The app recognized it instantly because it evolved the reflex during sleep. Energy cost was negligible (~1.2 units instead of ~25). **The app taught itself.**
+> **Pass 2**: The **same input** is now processed via **System 1 reflex** (deep=0, reflex=1). The app recognized it instantly because it evolved the reflex during sleep. Energy cost was negligible (~1.2 units instead of ~25). **The app evolved its own handling logic.**
 
 ```
 global_after: energy=426.54/426.54, zombie=False, delta=0.59
@@ -699,9 +699,9 @@ global_after: energy=426.54/426.54, zombie=False, delta=0.59
 
 ---
 
-### Demo 2: X86 Hardware Virtualization - "Geometry Replaces Silicon"
+### Demo 2: X86 Hardware Virtualization - "Geometric instruction representation experiment"
 
-> **Why this matters**: This demo shows that instruction semantics can be represented and manipulated geometrically rather than via traditional opcode switch dispatch. AxOS can represent registers, opcodes, and execution as pure geometry - meaning you could theoretically emulate *any* hardware architecture just by defining new tensor mappings.
+> **Why this matters**: This demo shows that instruction semantics can be represented and manipulated geometrically rather than via traditional opcode switch dispatch. AxOS can represent registers, opcodes, and execution as high-dimensional coordinates - meaning you could theoretically emulate *any* hardware architecture just by defining new tensor mappings.
 
 ```
 === X86 HARDWARE VIRTUALIZATION DEMO ===
@@ -752,7 +752,7 @@ cpu_execute: RET instruction. Binary execution complete.
 
 ### Demo 4: PE Ribosome - "Reading a Windows Executable Like DNA"
 
-> **Why this matters**: A Windows `.exe` file starts with a `MZ` DOS header, followed eventually by a `PE` signature. Traditional parsers use byte offsets and magic-number checks. AxOS parses it using a **biological state machine** driven entirely by tensor similarity - the same way a ribosome reads codons from mRNA.
+> **Why this matters**: A Windows `.exe` file starts with a `MZ` DOS header, followed eventually by a `PE` signature. Traditional parsers use byte offsets and magic-number checks. AxOS parses it using a **biological state machine** driven entirely by tensor similarity - the same way a ribosome reads codons from a template.
 
 ```
 === PE RIBOSOME (HEADER PARSING) DEMO ===
@@ -770,9 +770,9 @@ ribosome: Metamorphosis complete. Switcing to x86_64_Physical context.
 
 ---
 
-### Demo 5: Neuroplastic Discovery - "The OS Teaches Itself New Opcodes"
+### Demo 5: Neuroplastic Discovery - "Runtime reflex promotion for unknown symbols"
 
-> **Why this matters**: This is the signature demo of the entire architecture. It proves that AxOS can encounter **completely unknown data**, struggle with it, go to sleep, and wake up having permanently **rewritten its own DNA** to handle that data instantly. No human intervention. No recompilation. The Ruleset was mutated at runtime based on flagged anomalies.
+> **Why this matters**: This is the signature demo of the entire architecture. It proves that AxOS can encounter **completely unknown data**, struggle with it, go to sleep, and wake up having permanently **mutated its own ruleset (DNA)** to handle that data instantly. No human intervention. No recompilation. The Ruleset was mutated at runtime based on flagged anomalies.
 
 ```
 === NEUROPLASTIC DISCOVERY (KERNEL-INTEGRATED) DEMO ===
