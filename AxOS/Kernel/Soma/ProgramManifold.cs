@@ -39,7 +39,7 @@ namespace AxOS.Kernel
             Configuration safe = config ?? new Configuration();
             Name = string.IsNullOrWhiteSpace(safe.Name) ? "app" : safe.Name.Trim();
 
-            _hdc = new HdcSystem();
+            _hdc = hostKernelLoop.Hdc;
             _localRuleset = ruleset;
             
             foreach (KeyValuePair<string, Tensor> kvp in ruleset.SymbolDefinitions)
@@ -72,7 +72,7 @@ namespace AxOS.Kernel
             Configuration safe = config ?? new Configuration();
             Name = string.IsNullOrWhiteSpace(safe.Name) ? "app" : safe.Name.Trim();
 
-            _hdc = new HdcSystem();
+            _hdc = hostKernelLoop.Hdc;
             HeuristicConfig heuristics = (safe.Heuristics ?? new HeuristicConfig()).Copy();
             _kernelLoop = new KernelLoop(_hdc, safe.CacheCapacity, heuristics, null, false);
             _batchController = new BatchController();
@@ -129,6 +129,14 @@ namespace AxOS.Kernel
                     SimilarityThreshold = _localRuleset.Heuristics.CriticMin,
                     ActionIntent = "execute_geometric_shift"
                 });
+
+                _kernelLoop.WorkingMemory.PromoteToCache(
+                    anomaly.Key,
+                    anomaly.DeducedConstraint ?? anomaly.Value,
+                    0.99f,
+                    "x86_64_Discovery",
+                    anomaly.Key,
+                    0.0f);
             }
         }
 

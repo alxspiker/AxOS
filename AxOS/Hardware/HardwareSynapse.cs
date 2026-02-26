@@ -43,6 +43,7 @@ namespace AxOS.Hardware
             public string Intent = string.Empty;
             public string ReflexId = string.Empty;
             public float Similarity;
+            public float SecondBestSimilarity;
             public float SimilarityThreshold;
             public int ComparedReflexes;
         }
@@ -80,6 +81,10 @@ namespace AxOS.Hardware
                 else
                 {
                     seed.Failed++;
+                    if (seed.Failed <= 5)
+                    {
+                        Console.WriteLine("HW_SEED_ERROR: " + binding.Value + " failed - " + trained.Error);
+                    }
                 }
             }
 
@@ -176,6 +181,7 @@ namespace AxOS.Hardware
                 result.ReflexId = exactReflexId;
                 result.Intent = ResolveIntent(exactReflexId);
                 result.Similarity = 1.0f;
+                result.SecondBestSimilarity = 0.0f;
                 result.ComparedReflexes = 1;
                 return result;
             }
@@ -184,34 +190,45 @@ namespace AxOS.Hardware
             string bestIntent = string.Empty;
             string bestReflexId = string.Empty;
             int compared = 0;
+            Dictionary<string, float> bestByIntent = new Dictionary<string, float>();
 
             foreach (KeyValuePair<string, Tensor> kv in _hardwareVectors)
             {
                 string reflexId = kv.Key;
                 Tensor candidate = kv.Value;
-                if (candidate == null || candidate.IsEmpty)
-                {
-                    continue;
-                }
+                if (candidate == null || candidate.IsEmpty) continue;
 
                 Tensor aligned = AlignToDim(candidate, encoded.Total);
-                if (aligned.IsEmpty || aligned.Total != encoded.Total)
-                {
-                    continue;
-                }
+                if (aligned.IsEmpty || aligned.Total != encoded.Total) continue;
 
                 compared++;
                 float similarity = (float)TensorOps.CosineSimilarity(encoded, aligned);
-                if (similarity > bestSimilarity)
+                string intent = ResolveIntent(reflexId);
+
+                if (!bestByIntent.TryGetValue(intent, out float existingSim) || similarity > existingSim)
                 {
-                    bestSimilarity = similarity;
-                    bestReflexId = reflexId;
-                    bestIntent = ResolveIntent(reflexId);
+                    bestByIntent[intent] = similarity;
+                    if (similarity > bestSimilarity)
+                    {
+                        bestSimilarity = similarity;
+                        bestReflexId = reflexId;
+                        bestIntent = intent;
+                    }
+                }
+            }
+
+            float secondBestSimilarity = -1.0f;
+            foreach (KeyValuePair<string, float> kv in bestByIntent)
+            {
+                if (kv.Key != bestIntent && kv.Value > secondBestSimilarity)
+                {
+                    secondBestSimilarity = kv.Value;
                 }
             }
 
             result.ComparedReflexes = compared;
             result.Similarity = bestSimilarity < 0.0f ? 0.0f : bestSimilarity;
+            result.SecondBestSimilarity = secondBestSimilarity < 0.0f ? 0.0f : secondBestSimilarity;
             result.Intent = bestIntent;
             result.ReflexId = bestReflexId;
 
@@ -322,14 +339,21 @@ namespace AxOS.Hardware
 
         private static string BuildNumericPayload(byte[] rawPulse)
         {
-            StringBuilder sb = new StringBuilder(rawPulse.Length * 4);
-            for (int i = 0; i < rawPulse.Length; i++)
+            byte[] padded = rawPulse;
+            if (rawPulse.Length < 8)
+            {
+                padded = new byte[8];
+                for (int i = 0; i < rawPulse.Length; i++) padded[i] = rawPulse[i];
+            }
+            StringBuilder sb = new StringBuilder(padded.Length * 6);
+            for (int i = 0; i < padded.Length; i++)
             {
                 if (i > 0)
                 {
                     sb.Append(',');
                 }
-                sb.Append(rawPulse[i].ToString(CultureInfo.InvariantCulture));
+                float centered = (padded[i] - 127.5f) / 127.5f;
+                sb.Append(centered.ToString("0.000", CultureInfo.InvariantCulture));
             }
             return sb.ToString();
         }

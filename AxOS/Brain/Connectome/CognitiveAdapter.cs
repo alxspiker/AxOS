@@ -419,23 +419,66 @@ namespace AxOS.Brain
                 }
                 else if (token.Length > 0)
                 {
-                    if (float.TryParse(token.ToString(), NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out float parsed))
-                    {
-                        values.Add(parsed);
-                    }
+                    values.Add(ManualParseFloat(token.ToString()));
                     token.Clear();
                 }
             }
 
             if (token.Length > 0)
             {
-                if (float.TryParse(token.ToString(), NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out float parsed))
-                {
-                    values.Add(parsed);
-                }
+                values.Add(ManualParseFloat(token.ToString()));
             }
 
             return values;
+        }
+
+        private static float ManualParseFloat(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return 0.0f;
+            float sign = 1.0f;
+            int start = 0;
+            if (text[0] == '-')
+            {
+                sign = -1.0f;
+                start = 1;
+            }
+            else if (text[0] == '+')
+            {
+                start = 1;
+            }
+
+            float result = 0.0f;
+            bool fractional = false;
+            float fractionDivisor = 1.0f;
+
+            for (int i = start; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (c == '.')
+                {
+                    fractional = true;
+                }
+                else if (c >= '0' && c <= '9')
+                {
+                    int val = c - '0';
+                    if (!fractional)
+                    {
+                        result = result * 10 + val;
+                    }
+                    else
+                    {
+                        fractionDivisor *= 10.0f;
+                        result += val / fractionDivisor;
+                    }
+                }
+                else if (c == 'e' || c == 'E')
+                {
+                    // Not supporting exponents fully for simplicity in bare-metal, it's enough for "0.000" formats
+                    break;
+                }
+            }
+
+            return sign * result;
         }
 
         private static List<string> TokenizeText(string text)

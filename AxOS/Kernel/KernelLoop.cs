@@ -56,6 +56,8 @@ namespace AxOS.Kernel
         private SubstrateMonitor.Snapshot _lastSubstrate;
         private long _processedInputs;
 
+        public HdcSystem Hdc => _hdc;
+
         public KernelLoop(
             HdcSystem hdc,
             int cacheCapacity = 128,
