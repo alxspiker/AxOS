@@ -393,11 +393,23 @@ namespace AxOS.Brain
         {
             int safeDim = Math.Max(1, dim);
             Tensor tensor = new Tensor(new Shape(safeDim), 0.0f);
+            
             for (int i = 0; i < values.Count; i++)
             {
-                int slot = i % safeDim;
-                tensor.Data[slot] += values[i];
+                // Strict 32-bit integer math (bare-metal safe) to avoid IL2CPU Math.Abs(long) hangs
+                int p1 = i * 1315423;
+                int p2 = i * 2654435;
+                int p3 = i * 805459;
+
+                int s1 = (p1 % safeDim + safeDim) % safeDim;
+                int s2 = (p2 % safeDim + safeDim) % safeDim;
+                int s3 = (p3 % safeDim + safeDim) % safeDim;
+
+                tensor.Data[s1] += values[i];
+                tensor.Data[s2] -= values[i] * 0.5f;
+                tensor.Data[s3] += values[i] * 0.5f;
             }
+            
             return TensorOps.NormalizeL2(tensor);
         }
 

@@ -745,8 +745,8 @@ namespace AxOS.Diagnostics
             // 9. Unknown opcode detection
             log(string.Empty);
             log("--- UNKNOWN OPCODE DETECTION ---");
-            ulong alienSeed = 0xDEADBEEFUL;
-            byte[] alienPulse = GenerateRandomPulse(pulseLen, alienSeed);
+            byte[] alienPulse = new byte[pulseLen];
+            for (int a = 0; a < pulseLen; a++) alienPulse[a] = (byte)((a % 2 == 0) ? 0xAA : 0x55);
             localHdc.SignalPhase.Reset();
             HardwareSynapse.PulseResult alienRes = synapse.ProcessSignal(alienPulse);
             
