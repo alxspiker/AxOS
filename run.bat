@@ -45,13 +45,15 @@ if errorlevel 1 (
 
 set "DISPLAY_OPTS=-serial stdio"
 if defined SERIAL_MODE (
-    set "DISPLAY_OPTS=-display none -monitor none -serial stdio"
-    echo Running AxOS in serial mode...
+    REM Removed "-display none" so we don't blind the system while debugging!
+    set "DISPLAY_OPTS=-monitor none -serial stdio"
+    echo Running AxOS in serial mode with video enabled...
 ) else (
     echo Running AxOS...
 )
 
-"%QEMU_EXE%" -cdrom "%ISO%" -boot d -m 256 %DISPLAY_OPTS% -drive file="%DATA_IMG%",format=raw,if=ide,media=disk -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot
+REM Added "-vga vmware" to give Cosmos a proper virtual SVGA graphics card
+"%QEMU_EXE%" -vga vmware -cdrom "%ISO%" -boot d -m 256 %DISPLAY_OPTS% -drive file="%DATA_IMG%",format=raw,if=ide,media=disk -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot
 
 set "QEMU_EXIT=%ERRORLEVEL%"
 echo QEMU exited with code %QEMU_EXIT%.

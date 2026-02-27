@@ -54,11 +54,11 @@ namespace AxOS
             InitializeHfs(string.Empty, out _);
             _axKernelLoop.BootSequence();
 
-            Console.WriteLine("AxOS booted.");
-            Console.WriteLine("Type 'help' to list commands.");
+            MirrorWriteLine("AxOS booted.");
+            MirrorWriteLine("Type 'help' to list commands.");
             if (_hfsReady)
             {
-                Console.WriteLine("HFS ready at " + _hfs.RootPath);
+                MirrorWriteLine("HFS ready at " + _hfs.RootPath);
             }
             if (_peripheralNerve.IsReady)
             {
@@ -138,7 +138,7 @@ namespace AxOS
             }
             catch (Exception ex)
             {
-                Console.WriteLine("error: " + ex.Message);
+                MirrorWriteLine("error: " + ex.Message);
                 if (fromSerial)
                 {
                     _peripheralNerve.WriteLine("error: " + ex.Message);
@@ -170,7 +170,7 @@ namespace AxOS
                         if (i > 1) echoSb.Append(' ');
                         echoSb.Append(args[i]);
                     }
-                    Console.WriteLine(echoSb.ToString());
+                    MirrorWriteLine(echoSb.ToString());
                     break;
                 }
                 case "hdc":
@@ -217,7 +217,7 @@ namespace AxOS
                     ShutdownSystem();
                     break;
                 default:
-                    Console.WriteLine("Unknown command. Type 'help'.");
+                    MirrorWriteLine("Unknown command. Type 'help'.");
                     break;
             }
         }
@@ -296,32 +296,32 @@ namespace AxOS
 
                 case "clear":
                     _hdc.ClearAll();
-                    Console.WriteLine("HDC state cleared.");
+                    MirrorWriteLine("HDC state cleared.");
                     break;
 
                 case "remember":
                 {
                     if (args.Count < 3)
                     {
-                        Console.WriteLine("Usage: hdc remember \"text\" [dim]");
+                        MirrorWriteLine("Usage: hdc remember \"text\" [dim]");
                         return;
                     }
 
                     int dim = args.Count > 3 ? ParseInt(args[3], ResolveDim()) : ResolveDim();
                     if (!TryEncodeText(args[2], dim, out Tensor encoded, out List<string> tokens, out string error))
                     {
-                        Console.WriteLine("encode_failed: " + error);
+                        MirrorWriteLine("encode_failed: " + error);
                         return;
                     }
 
                     if (!_hdc.Remember(encoded, out error))
                     {
-                        Console.WriteLine("remember_failed: " + error);
+                        MirrorWriteLine("remember_failed: " + error);
                         return;
                     }
 
-                    Console.WriteLine("stored: tokens=" + tokens.Count + ", dim=" + encoded.Total + ", step=" + _hdc.Memory.CurrentStep);
-                    Console.WriteLine("vector=" + TensorPreview(encoded));
+                    MirrorWriteLine("stored: tokens=" + tokens.Count + ", dim=" + encoded.Total + ", step=" + _hdc.Memory.CurrentStep);
+                    MirrorWriteLine("vector=" + TensorPreview(encoded));
                     break;
                 }
 
@@ -329,14 +329,14 @@ namespace AxOS
                 {
                     if (args.Count < 3)
                     {
-                        Console.WriteLine("Usage: hdc recall \"query text\" [dim]");
+                        MirrorWriteLine("Usage: hdc recall \"query text\" [dim]");
                         return;
                     }
 
                     int dim = args.Count > 3 ? ParseInt(args[3], ResolveDim()) : ResolveDim();
                     if (!TryEncodeText(args[2], dim, out Tensor query, out _, out string error))
                     {
-                        Console.WriteLine("encode_failed: " + error);
+                        MirrorWriteLine("encode_failed: " + error);
                         return;
                     }
 
@@ -349,7 +349,7 @@ namespace AxOS
                 {
                     if (args.Count < 3 || !long.TryParse(args[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out long stepsAgo))
                     {
-                        Console.WriteLine("Usage: hdc ago <steps>");
+                        MirrorWriteLine("Usage: hdc ago <steps>");
                         return;
                     }
 
@@ -362,14 +362,14 @@ namespace AxOS
                 {
                     if (args.Count < 3)
                     {
-                        Console.WriteLine("Usage: hdc symbol <token> [dim]");
+                        MirrorWriteLine("Usage: hdc symbol <token> [dim]");
                         return;
                     }
 
                     int dim = args.Count > 3 ? ParseInt(args[3], ResolveDim()) : ResolveDim();
                     if (!_hdc.Symbols.ResolveSymbol(args[2], dim, out Tensor symbol, out string error, out string token))
                     {
-                        Console.WriteLine("symbol_failed: " + error);
+                        MirrorWriteLine("symbol_failed: " + error);
                         return;
                     }
 
@@ -380,8 +380,8 @@ namespace AxOS
                         symbolId = ids[0];
                     }
 
-                    Console.WriteLine("token=" + token + ", id=" + symbolId + ", dim=" + symbol.Total);
-                    Console.WriteLine("vector=" + TensorPreview(symbol));
+                    MirrorWriteLine("token=" + token + ", id=" + symbolId + ", dim=" + symbol.Total);
+                    MirrorWriteLine("vector=" + TensorPreview(symbol));
                     break;
                 }
 
@@ -389,19 +389,19 @@ namespace AxOS
                 {
                     if (args.Count < 3)
                     {
-                        Console.WriteLine("Usage: hdc encode \"text\" [dim]");
+                        MirrorWriteLine("Usage: hdc encode \"text\" [dim]");
                         return;
                     }
 
                     int dim = args.Count > 3 ? ParseInt(args[3], ResolveDim()) : ResolveDim();
                     if (!TryEncodeText(args[2], dim, out Tensor encoded, out List<string> tokens, out string error))
                     {
-                        Console.WriteLine("encode_failed: " + error);
+                        MirrorWriteLine("encode_failed: " + error);
                         return;
                     }
 
-                    Console.WriteLine("encoded: tokens=" + tokens.Count + ", dim=" + encoded.Total);
-                    Console.WriteLine("vector=" + TensorPreview(encoded));
+                    MirrorWriteLine("encoded: tokens=" + tokens.Count + ", dim=" + encoded.Total);
+                    MirrorWriteLine("vector=" + TensorPreview(encoded));
                     break;
                 }
 
@@ -409,24 +409,24 @@ namespace AxOS
                 {
                     if (args.Count < 4)
                     {
-                        Console.WriteLine("Usage: hdc sim \"text_a\" \"text_b\" [dim]");
+                        MirrorWriteLine("Usage: hdc sim \"text_a\" \"text_b\" [dim]");
                         return;
                     }
 
                     int dim = args.Count > 4 ? ParseInt(args[4], ResolveDim()) : ResolveDim();
                     if (!TryEncodeText(args[2], dim, out Tensor a, out _, out string errorA))
                     {
-                        Console.WriteLine("encode_a_failed: " + errorA);
+                        MirrorWriteLine("encode_a_failed: " + errorA);
                         return;
                     }
                     if (!TryEncodeText(args[3], dim, out Tensor b, out _, out string errorB))
                     {
-                        Console.WriteLine("encode_b_failed: " + errorB);
+                        MirrorWriteLine("encode_b_failed: " + errorB);
                         return;
                     }
 
                     double sim = TensorOps.CosineSimilarity(a, b);
-                    Console.WriteLine("similarity=" + sim.ToString("0.000000", CultureInfo.InvariantCulture));
+                    MirrorWriteLine("similarity=" + sim.ToString("0.000000", CultureInfo.InvariantCulture));
                     break;
                 }
 
@@ -434,7 +434,7 @@ namespace AxOS
                 {
                     if (args.Count < 3)
                     {
-                        Console.WriteLine("Usage: hdc seq <sequence> [kmer] [stride] [max_kmers] [dim]");
+                        MirrorWriteLine("Usage: hdc seq <sequence> [kmer] [stride] [max_kmers] [dim]");
                         return;
                     }
 
@@ -447,12 +447,12 @@ namespace AxOS
                     _hdc.Sequence.TokenizeSequenceForHdc(seq, kmer, stride, maxKmers, dim, out List<string> tokens, out List<int> positions);
                     if (!_hdc.Sequence.EncodeTokens(_hdc.Symbols, tokens, positions, dim, out Tensor encoded, out string error, out string errorToken))
                     {
-                        Console.WriteLine("seq_encode_failed: " + error + (string.IsNullOrEmpty(errorToken) ? string.Empty : " (" + errorToken + ")"));
+                        MirrorWriteLine("seq_encode_failed: " + error + (string.IsNullOrEmpty(errorToken) ? string.Empty : " (" + errorToken + ")"));
                         return;
                     }
 
-                    Console.WriteLine("seq_encoded: tokens=" + tokens.Count + ", dim=" + encoded.Total);
-                    Console.WriteLine("vector=" + TensorPreview(encoded));
+                    MirrorWriteLine("seq_encoded: tokens=" + tokens.Count + ", dim=" + encoded.Total);
+                    MirrorWriteLine("vector=" + TensorPreview(encoded));
                     break;
                 }
 
@@ -460,7 +460,7 @@ namespace AxOS
                 {
                     if (args.Count < 4)
                     {
-                        Console.WriteLine("Usage: hdc promote <reflex_id> <label> [stability] [dim]");
+                        MirrorWriteLine("Usage: hdc promote <reflex_id> <label> [stability] [dim]");
                         return;
                     }
 
@@ -471,7 +471,7 @@ namespace AxOS
 
                     if (!_hdc.Symbols.ResolveSymbol(label, dim, out Tensor vector, out string error, out string resolvedLabel))
                     {
-                        Console.WriteLine("promote_failed: " + error);
+                        MirrorWriteLine("promote_failed: " + error);
                         return;
                     }
 
@@ -482,7 +482,7 @@ namespace AxOS
                     };
 
                     string outcome = _hdc.Reflexes.Promote(reflexId, vector, meta, true, out string resolvedReflexId);
-                    Console.WriteLine("promote=" + outcome + ", reflex_id=" + resolvedReflexId + ", label=" + resolvedLabel);
+                    MirrorWriteLine("promote=" + outcome + ", reflex_id=" + resolvedReflexId + ", label=" + resolvedLabel);
                     break;
                 }
 
@@ -490,7 +490,7 @@ namespace AxOS
                 {
                     if (args.Count < 3)
                     {
-                        Console.WriteLine("Usage: hdc query <label> [limit] [min_stability]");
+                        MirrorWriteLine("Usage: hdc query <label> [limit] [min_stability]");
                         return;
                     }
 
@@ -499,10 +499,10 @@ namespace AxOS
                     double minStability = args.Count > 4 ? ParseDouble(args[4], 0.0) : 0.0;
                     ReflexStore.QueryResult query = _hdc.Reflexes.Query("label", string.Empty, label, minStability, limit, true, _hdc.Symbols);
 
-                    Console.WriteLine("hits=" + query.ReflexIds.Count + ", scope=" + query.Scope + ", dim=" + query.Dim);
+                    MirrorWriteLine("hits=" + query.ReflexIds.Count + ", scope=" + query.Scope + ", dim=" + query.Dim);
                     for (int i = 0; i < query.ReflexIds.Count; i++)
                     {
-                        Console.WriteLine(
+                        MirrorWriteLine(
                             "#" + (i + 1) + " reflex_id=" + query.ReflexIds[i] +
                             ", stability=" + query.Stabilities[i].ToString("0.000", CultureInfo.InvariantCulture));
                     }
@@ -510,7 +510,7 @@ namespace AxOS
                 }
 
                 default:
-                    Console.WriteLine("Unknown hdc command. Type 'hdc help'.");
+                    MirrorWriteLine("Unknown hdc command. Type 'hdc help'.");
                     break;
             }
         }
@@ -865,10 +865,7 @@ namespace AxOS
         {
             string safePrompt = prompt ?? string.Empty;
             Console.Write(safePrompt);
-            if (_activeCommandFromSerial)
-            {
-                _peripheralNerve.Write(safePrompt);
-            }
+            _peripheralNerve.Write(safePrompt);
 
             StringBuilder inputBuffer = new StringBuilder();
             int cursorPos = 0;
@@ -884,10 +881,11 @@ namespace AxOS
 
                     if (keyInfo.Key == ConsoleKey.Enter)
                     {
-                        Console.WriteLine();
-                        if (_activeCommandFromSerial) _peripheralNerve.WriteLine(string.Empty);
+                        MirrorWriteLine();
+                        _peripheralNerve.WriteLine(string.Empty);
                         return inputBuffer.ToString();
                     }
+
                     else if (keyInfo.Key == ConsoleKey.LeftArrow)
                     {
                         if (cursorPos > 0)
@@ -945,9 +943,10 @@ namespace AxOS
                             Console.CursorLeft = oldLeft;
                             Console.CursorTop = oldTop;
                             
-                            if (_activeCommandFromSerial) _peripheralNerve.Write("\b \b");
+                            _peripheralNerve.Write("\b \b");
                         }
                     }
+
                     else if (keyInfo.KeyChar >= ' ' && keyInfo.KeyChar <= '~' && keyInfo.KeyChar != '\b' && keyInfo.KeyChar != 127)
                     {
                         inputBuffer.Insert(cursorPos, keyInfo.KeyChar);
@@ -967,17 +966,18 @@ namespace AxOS
                         Console.CursorLeft = oldLeft;
                         Console.CursorTop = oldTop;
 
-                        if (_activeCommandFromSerial) _peripheralNerve.Write(keyInfo.KeyChar.ToString());
+                        _peripheralNerve.Write(keyInfo.KeyChar.ToString());
                     }
                 }
 
                 if (_peripheralNerve.IsReady && _peripheralNerve.TryReadLine(out string serialLine))
                 {
                     active = true;
-                    Console.WriteLine(serialLine);
-                    if (_activeCommandFromSerial) _peripheralNerve.WriteLine(serialLine);
+                    MirrorWriteLine(serialLine);
+                    _peripheralNerve.WriteLine(serialLine);
                     return serialLine;
                 }
+
 
                 if (!active)
                 {
@@ -992,12 +992,20 @@ namespace AxOS
 
         private void WriteInteractiveLine(string text)
         {
-            Console.WriteLine(text ?? string.Empty);
-            if (_activeCommandFromSerial)
+            MirrorWriteLine(text);
+        }
+
+        private void MirrorWriteLine(string text = "")
+        {
+            string safe = text ?? string.Empty;
+            Console.WriteLine(safe);
+            if (_peripheralNerve.IsReady)
             {
-                _peripheralNerve.WriteLine(text ?? string.Empty);
+                _peripheralNerve.WriteLine(safe);
             }
         }
+
+
 
         private void RunStartupTestSequence()
         {
@@ -1018,13 +1026,9 @@ namespace AxOS
 
         private void WriteBootAndSerialLine(string text)
         {
-            string safe = text ?? string.Empty;
-            Console.WriteLine(safe);
-            if (_peripheralNerve.IsReady)
-            {
-                _peripheralNerve.WriteLine(safe);
-            }
+            MirrorWriteLine(text);
         }
+
 
         private HardwareSynapse GetHardwareSynapse()
         {
@@ -1056,16 +1060,16 @@ namespace AxOS
                 {
                     if (!TryResolveMapperPath(args.Count > 2 ? args[2] : string.Empty, out string path, out string pathError))
                     {
-                        Console.WriteLine("mapper_save_failed: " + pathError);
+                        MirrorWriteLine("mapper_save_failed: " + pathError);
                         return;
                     }
 
                     if (!_hdc.SaveMapper(path, out string error))
                     {
-                        Console.WriteLine("mapper_save_failed: " + error);
+                        MirrorWriteLine("mapper_save_failed: " + error);
                         return;
                     }
-                    Console.WriteLine("mapper_saved: " + _hdc.MapperStorePath);
+                    MirrorWriteLine("mapper_saved: " + _hdc.MapperStorePath);
                     break;
                 }
 
@@ -1073,23 +1077,23 @@ namespace AxOS
                 {
                     if (!TryResolveMapperPath(args.Count > 2 ? args[2] : string.Empty, out string path, out string pathError))
                     {
-                        Console.WriteLine("mapper_load_failed: " + pathError);
+                        MirrorWriteLine("mapper_load_failed: " + pathError);
                         return;
                     }
 
                     int dim = args.Count > 3 ? ParseInt(args[3], ResolveDim()) : ResolveDim();
                     if (!_hdc.LoadMapper(path, dim, out string error))
                     {
-                        Console.WriteLine("mapper_load_failed: " + error);
+                        MirrorWriteLine("mapper_load_failed: " + error);
                         return;
                     }
-                    Console.WriteLine("mapper_loaded: " + _hdc.MapperStorePath);
+                    MirrorWriteLine("mapper_loaded: " + _hdc.MapperStorePath);
                     PrintHdcStats();
                     break;
                 }
 
                 default:
-                    Console.WriteLine("Unknown mapper command. Type 'mapper help'.");
+                    MirrorWriteLine("Unknown mapper command. Type 'mapper help'.");
                     break;
             }
         }
@@ -1115,14 +1119,14 @@ namespace AxOS
                 {
                     if (args.Count < 5)
                     {
-                        Console.WriteLine("Usage: algo vector \"base\" \"add|-\" \"sub|-\" [dim]");
+                        MirrorWriteLine("Usage: algo vector \"base\" \"add|-\" \"sub|-\" [dim]");
                         return;
                     }
 
                     int dim = args.Count > 5 ? ParseInt(args[5], ResolveDim()) : ResolveDim();
                     if (!TryEncodeText(args[2], dim, out Tensor baseVec, out _, out string baseError))
                     {
-                        Console.WriteLine("base_encode_failed: " + baseError);
+                        MirrorWriteLine("base_encode_failed: " + baseError);
                         return;
                     }
 
@@ -1131,7 +1135,7 @@ namespace AxOS
                     {
                         if (!TryEncodeText(args[3], dim, out addVec, out _, out string addError))
                         {
-                            Console.WriteLine("add_encode_failed: " + addError);
+                            MirrorWriteLine("add_encode_failed: " + addError);
                             return;
                         }
                     }
@@ -1141,14 +1145,14 @@ namespace AxOS
                     {
                         if (!TryEncodeText(args[4], dim, out subVec, out _, out string subError))
                         {
-                            Console.WriteLine("sub_encode_failed: " + subError);
+                            MirrorWriteLine("sub_encode_failed: " + subError);
                             return;
                         }
                     }
 
                     Tensor output = HdcAlgorithms.VectorMath(baseVec, addVec, subVec, true);
-                    Console.WriteLine("vector_math_dim=" + output.Total);
-                    Console.WriteLine("vector=" + TensorPreview(output));
+                    MirrorWriteLine("vector_math_dim=" + output.Total);
+                    MirrorWriteLine("vector=" + TensorPreview(output));
                     break;
                 }
 
@@ -1156,7 +1160,7 @@ namespace AxOS
                 {
                     if (args.Count < 4)
                     {
-                        Console.WriteLine("Usage: algo cosine \"query\" \"cand_a|cand_b|...\" [dim] [top_k]");
+                        MirrorWriteLine("Usage: algo cosine \"query\" \"cand_a|cand_b|...\" [dim] [top_k]");
                         return;
                     }
 
@@ -1166,13 +1170,13 @@ namespace AxOS
                     List<string> candidates = SplitPipeList(args[3]);
                     if (candidates.Count == 0)
                     {
-                        Console.WriteLine("missing_candidates");
+                        MirrorWriteLine("missing_candidates");
                         return;
                     }
 
                     if (!TryEncodeText(args[2], dim, out Tensor query, out _, out string queryError))
                     {
-                        Console.WriteLine("query_encode_failed: " + queryError);
+                        MirrorWriteLine("query_encode_failed: " + queryError);
                         return;
                     }
 
@@ -1181,18 +1185,18 @@ namespace AxOS
                     {
                         if (!TryEncodeText(candidates[i], dim, out Tensor vec, out _, out string candError))
                         {
-                            Console.WriteLine("candidate_encode_failed: " + candError);
+                            MirrorWriteLine("candidate_encode_failed: " + candError);
                             return;
                         }
                         candidateVectors.Add(vec);
                     }
 
                     HdcAlgorithms.CosineSearchResult result = HdcAlgorithms.CosineSearch(query, candidateVectors, topK);
-                    Console.WriteLine("cosine_topk=" + result.TopK + ", rows=" + result.Rows + ", dim=" + result.Dim);
+                    MirrorWriteLine("cosine_topk=" + result.TopK + ", rows=" + result.Rows + ", dim=" + result.Dim);
                     for (int i = 0; i < result.Indices.Length; i++)
                     {
                         int idx = result.Indices[i];
-                        Console.WriteLine(
+                        MirrorWriteLine(
                             "#" + (i + 1) + " idx=" + idx +
                             ", score=" + result.Scores[i].ToString("0.000000", CultureInfo.InvariantCulture) +
                             ", text=\"" + candidates[idx] + "\"");
@@ -1204,7 +1208,7 @@ namespace AxOS
                 {
                     if (args.Count < 3)
                     {
-                        Console.WriteLine("Usage: algo relax \"item_a|item_b|...\" [dim] [iterations]");
+                        MirrorWriteLine("Usage: algo relax \"item_a|item_b|...\" [dim] [iterations]");
                         return;
                     }
 
@@ -1214,7 +1218,7 @@ namespace AxOS
                     List<string> items = SplitPipeList(args[2]);
                     if (items.Count == 0)
                     {
-                        Console.WriteLine("missing_items");
+                        MirrorWriteLine("missing_items");
                         return;
                     }
 
@@ -1223,18 +1227,18 @@ namespace AxOS
                     {
                         if (!TryEncodeText(items[i], dim, out Tensor vec, out _, out string itemError))
                         {
-                            Console.WriteLine("item_encode_failed: " + itemError);
+                            MirrorWriteLine("item_encode_failed: " + itemError);
                             return;
                         }
                         vectors.Add(vec);
                     }
 
                     HdcAlgorithms.HopfieldRelaxResult result = HdcAlgorithms.HopfieldRelax(vectors, iterations, 0.9, 2.0, true);
-                    Console.WriteLine("relax_dim=" + result.Dim + ", rows=" + result.Rows + ", iterations=" + result.Iterations);
-                    Console.WriteLine("attractor=" + TensorPreview(result.Value));
+                    MirrorWriteLine("relax_dim=" + result.Dim + ", rows=" + result.Rows + ", iterations=" + result.Iterations);
+                    MirrorWriteLine("attractor=" + TensorPreview(result.Value));
                     for (int i = 0; i < result.Alignments.Length; i++)
                     {
-                        Console.WriteLine(
+                        MirrorWriteLine(
                             "#" + (i + 1) + " align=" + result.Alignments[i].ToString("0.000000", CultureInfo.InvariantCulture) +
                             ", text=\"" + items[i] + "\"");
                     }
@@ -1245,7 +1249,7 @@ namespace AxOS
                 {
                     if (args.Count < 4)
                     {
-                        Console.WriteLine("Usage: algo manifold \"train_a|train_b|...\" \"cand_a|cand_b|...\" [dim] [top_k] [iterations]");
+                        MirrorWriteLine("Usage: algo manifold \"train_a|train_b|...\" \"cand_a|cand_b|...\" [dim] [top_k] [iterations]");
                         return;
                     }
 
@@ -1257,7 +1261,7 @@ namespace AxOS
                     List<string> candidateItems = SplitPipeList(args[3]);
                     if (trainItems.Count == 0 || candidateItems.Count == 0)
                     {
-                        Console.WriteLine("missing_train_or_candidates");
+                        MirrorWriteLine("missing_train_or_candidates");
                         return;
                     }
 
@@ -1266,7 +1270,7 @@ namespace AxOS
                     {
                         if (!TryEncodeText(trainItems[i], dim, out Tensor vec, out _, out string trainError))
                         {
-                            Console.WriteLine("train_encode_failed: " + trainError);
+                            MirrorWriteLine("train_encode_failed: " + trainError);
                             return;
                         }
                         trainVectors.Add(vec);
@@ -1277,7 +1281,7 @@ namespace AxOS
                     {
                         if (!TryEncodeText(candidateItems[i], dim, out Tensor vec, out _, out string candError))
                         {
-                            Console.WriteLine("candidate_encode_failed: " + candError);
+                            MirrorWriteLine("candidate_encode_failed: " + candError);
                             return;
                         }
                         candidateVectors.Add(vec);
@@ -1293,7 +1297,7 @@ namespace AxOS
                         topK,
                         true);
 
-                    Console.WriteLine(
+                    MirrorWriteLine(
                         "manifold_dim=" + result.Dim +
                         ", train_rows=" + result.TrainRows +
                         ", candidate_rows=" + result.CandidateRows +
@@ -1301,7 +1305,7 @@ namespace AxOS
                     for (int i = 0; i < result.Indices.Length; i++)
                     {
                         int idx = result.Indices[i];
-                        Console.WriteLine(
+                        MirrorWriteLine(
                             "#" + (i + 1) + " idx=" + idx +
                             ", score=" + result.Scores[i].ToString("0.000000", CultureInfo.InvariantCulture) +
                             ", text=\"" + candidateItems[idx] + "\"");
@@ -1310,7 +1314,7 @@ namespace AxOS
                 }
 
                 default:
-                    Console.WriteLine("Unknown algo command. Type 'algo help'.");
+                    MirrorWriteLine("Unknown algo command. Type 'algo help'.");
                     break;
             }
         }
@@ -1862,35 +1866,36 @@ namespace AxOS
             SymbolSpace.SymbolStats symbolStats = _hdc.Symbols.GetStats();
             ReflexStore.ReflexStats reflexStats = _hdc.Reflexes.GetStats(symbolStats.SymbolDim);
 
-            Console.WriteLine(
+            MirrorWriteLine(
                 "memory: dim=" + _hdc.Memory.Dimension +
                 ", total=" + _hdc.Memory.TotalStored +
                 ", step=" + _hdc.Memory.CurrentStep +
                 ", levels=" + _hdc.Memory.ActiveLevels + "/" + _hdc.Memory.MaxLevels);
-            Console.WriteLine("symbols: count=" + symbolStats.SymbolCount + ", dim=" + symbolStats.SymbolDim);
-            Console.WriteLine("reflexes: count=" + reflexStats.Count + ", approx_bytes=" + reflexStats.ApproxBytes);
+            MirrorWriteLine("symbols: count=" + symbolStats.SymbolCount + ", dim=" + symbolStats.SymbolDim);
+            MirrorWriteLine("reflexes: count=" + reflexStats.Count + ", approx_bytes=" + reflexStats.ApproxBytes);
             if (!string.IsNullOrWhiteSpace(_hdc.MapperStorePath))
             {
-                Console.WriteLine("mapper_path: " + _hdc.MapperStorePath);
+                MirrorWriteLine("mapper_path: " + _hdc.MapperStorePath);
             }
         }
 
-        private static void PrintRecallResult(EpisodicMemory.RecallResult recall)
+        // Converted from static to instance so it can call MirrorWriteLine directly.
+        private void PrintRecallResult(EpisodicMemory.RecallResult recall)
         {
             if (!recall.Found)
             {
-                Console.WriteLine("recall: no match");
+                MirrorWriteLine("recall: no match");
                 return;
             }
 
-            Console.WriteLine(
+            MirrorWriteLine(
                 "recall: source=" + recall.Source +
                 ", similarity=" + recall.Similarity.ToString("0.000000", CultureInfo.InvariantCulture) +
                 ", stored_step=" + recall.StoredStep +
                 ", age_steps=" + recall.AgeSteps +
                 ", level=" + recall.Level +
                 ", span=" + recall.Span);
-            Console.WriteLine("vector=" + TensorPreview(recall.Value));
+            MirrorWriteLine("vector=" + TensorPreview(recall.Value));
         }
 
         private static int ParseInt(string raw, int fallback)
@@ -2275,69 +2280,74 @@ namespace AxOS
             return args;
         }
 
-        private static void PrintHelp()
+        private void PrintHelp()
+
         {
-            Console.WriteLine("AxOS commands:");
-            Console.WriteLine("  help");
-            Console.WriteLine("  cls | clear");
-            Console.WriteLine("  echo <text>");
-            Console.WriteLine("  hdc <subcommand>      (type 'hdc help')");
-            Console.WriteLine("  hfs <subcommand>      (type 'hfs help')");
-            Console.WriteLine("  save \"intent\" \"content\" [dim]");
-            Console.WriteLine("  find \"intent\" [dim]");
-            Console.WriteLine("  run \"intent\" [dim]");
-            Console.WriteLine("  holopad [dim] [threshold]");
-            Console.WriteLine("  mapper <subcommand>   (type 'mapper help')");
-            Console.WriteLine("  algo <subcommand>     (type 'algo help')");
-            Console.WriteLine("  kernel <subcommand>   (type 'kernel help')");
-            Console.WriteLine("  synapse <subcommand>  (type 'synapse help')");
-            Console.WriteLine("  appdemo");
-            Console.WriteLine("  kerneltest");
-            Console.WriteLine("  reboot | shutdown");
+            MirrorWriteLine("AxOS commands:");
+            MirrorWriteLine("  help");
+            MirrorWriteLine("  cls | clear");
+            MirrorWriteLine("  echo <text>");
+            MirrorWriteLine("  hdc <subcommand>      (type 'hdc help')");
+            MirrorWriteLine("  hfs <subcommand>      (type 'hfs help')");
+            MirrorWriteLine("  save \"intent\" \"content\" [dim]");
+            MirrorWriteLine("  find \"intent\" [dim]");
+            MirrorWriteLine("  run \"intent\" [dim]");
+            MirrorWriteLine("  holopad [dim] [threshold]");
+            MirrorWriteLine("  mapper <subcommand>   (type 'mapper help')");
+            MirrorWriteLine("  algo <subcommand>     (type 'algo help')");
+            MirrorWriteLine("  kernel <subcommand>   (type 'kernel help')");
+            MirrorWriteLine("  synapse <subcommand>  (type 'synapse help')");
+            MirrorWriteLine("  appdemo");
+            MirrorWriteLine("  kerneltest");
+            MirrorWriteLine("  reboot | shutdown");
         }
 
-        private static void PrintHdcHelp()
+        private void PrintHdcHelp()
+
         {
-            Console.WriteLine("hdc commands:");
-            Console.WriteLine("  hdc stats");
-            Console.WriteLine("  hdc clear");
-            Console.WriteLine("  hdc remember \"text\" [dim]");
-            Console.WriteLine("  hdc recall \"text\" [dim]");
-            Console.WriteLine("  hdc ago <steps>");
-            Console.WriteLine("  hdc symbol <token> [dim]");
-            Console.WriteLine("  hdc encode \"text\" [dim]");
-            Console.WriteLine("  hdc sim \"text_a\" \"text_b\" [dim]");
-            Console.WriteLine("  hdc seq <sequence> [kmer] [stride] [max_kmers] [dim]");
-            Console.WriteLine("  hdc promote <reflex_id> <label> [stability] [dim]");
-            Console.WriteLine("  hdc query <label> [limit] [min_stability]");
+            MirrorWriteLine("hdc commands:");
+            MirrorWriteLine("  hdc stats");
+            MirrorWriteLine("  hdc clear");
+            MirrorWriteLine("  hdc remember \"text\" [dim]");
+            MirrorWriteLine("  hdc recall \"text\" [dim]");
+            MirrorWriteLine("  hdc ago <steps>");
+            MirrorWriteLine("  hdc symbol <token> [dim]");
+            MirrorWriteLine("  hdc encode \"text\" [dim]");
+            MirrorWriteLine("  hdc sim \"text_a\" \"text_b\" [dim]");
+            MirrorWriteLine("  hdc seq <sequence> [kmer] [stride] [max_kmers] [dim]");
+            MirrorWriteLine("  hdc promote <reflex_id> <label> [stability] [dim]");
+            MirrorWriteLine("  hdc query <label> [limit] [min_stability]");
         }
 
-        private static void PrintMapperHelp()
+        private void PrintMapperHelp()
+
         {
-            Console.WriteLine("mapper commands:");
-            Console.WriteLine("  mapper save <path>");
-            Console.WriteLine("  mapper load <path> [dim]");
+            MirrorWriteLine("mapper commands:");
+            MirrorWriteLine("  mapper save <path>");
+            MirrorWriteLine("  mapper load <path> [dim]");
         }
 
-        private static void PrintHfsHelp()
+        private void PrintHfsHelp()
+
         {
-            Console.WriteLine("hfs commands:");
-            Console.WriteLine("  hfs init [drive_path]");
-            Console.WriteLine("  hfs stats");
-            Console.WriteLine("  hfs write \"intent\" \"content\" [dim]");
-            Console.WriteLine("  hfs read \"intent\" [dim]");
-            Console.WriteLine("  hfs search \"intent\" [top_k] [dim]");
-            Console.WriteLine("  hfs list [limit]");
+            MirrorWriteLine("hfs commands:");
+            MirrorWriteLine("  hfs init [drive_path]");
+            MirrorWriteLine("  hfs stats");
+            MirrorWriteLine("  hfs write \"intent\" \"content\" [dim]");
+            MirrorWriteLine("  hfs read \"intent\" [dim]");
+            MirrorWriteLine("  hfs search \"intent\" [top_k] [dim]");
+            MirrorWriteLine("  hfs list [limit]");
         }
 
-        private static void PrintAlgoHelp()
+        private void PrintAlgoHelp()
+
         {
-            Console.WriteLine("algo commands:");
-            Console.WriteLine("  algo fractal [dim] [offset]");
-            Console.WriteLine("  algo vector \"base\" \"add|-\" \"sub|-\" [dim]");
-            Console.WriteLine("  algo cosine \"query\" \"cand_a|cand_b|...\" [dim] [top_k]");
-            Console.WriteLine("  algo relax \"item_a|item_b|...\" [dim] [iterations]");
-            Console.WriteLine("  algo manifold \"train_a|train_b|...\" \"cand_a|cand_b|...\" [dim] [top_k] [iterations]");
+            MirrorWriteLine("algo commands:");
+            MirrorWriteLine("  algo fractal [dim] [offset]");
+            MirrorWriteLine("  algo vector \"base\" \"add|-\" \"sub|-\" [dim]");
+            MirrorWriteLine("  algo cosine \"query\" \"cand_a|cand_b|...\" [dim] [top_k]");
+            MirrorWriteLine("  algo relax \"item_a|item_b|...\" [dim] [iterations]");
+            MirrorWriteLine("  algo manifold \"train_a|train_b|...\" \"cand_a|cand_b|...\" [dim] [top_k] [iterations]");
         }
     }
 }

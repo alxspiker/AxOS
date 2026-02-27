@@ -710,7 +710,7 @@ namespace AxOS.Diagnostics
                     if (j == 0) // Log 1 example per opcode for diagnostics
                     {
                         float margin = pr.Similarity - pr.SecondBestSimilarity;
-                        if (margin != margin) margin = 0.0f; // NaN guard
+                        if (float.IsNaN(margin)) margin = 0.0f; // NaN guard
                         log($"eval: act={opcodeNames[i]} | pred={(string.IsNullOrWhiteSpace(pr.Intent) ? "NONE" : pr.Intent)} | sim={pr.Similarity:F3} | margin={margin:F3} | strict_pass={passedMargin}");
                     }
                 }
@@ -743,7 +743,7 @@ namespace AxOS.Diagnostics
                 {
                     HardwareSynapse.PulseResult pr = synapse.ProcessSignal(testPulses[i][j]);
                     float margin = pr.Similarity - pr.SecondBestSimilarity;
-                    if (margin != margin) margin = 0.0f;
+                    if (float.IsNaN(margin)) margin = 0.0f;
                     bool passedMargin = pr.Recognized && pr.Similarity >= 0.70f && margin >= 0.04f;
                     
                     int predIdx = -1;
@@ -777,7 +777,7 @@ namespace AxOS.Diagnostics
             HardwareSynapse.PulseResult alienRes = synapse.ProcessSignal(alienPulse);
             
             float alienMargin = alienRes.Similarity - alienRes.SecondBestSimilarity;
-            if (alienMargin != alienMargin) alienMargin = 0.0f;
+            if (float.IsNaN(alienMargin)) alienMargin = 0.0f;
             bool alienPassedMargin = alienRes.Recognized && alienRes.Similarity >= 0.70f && alienMargin >= 0.04f;
             log("alien_pulse: max_sim=" + alienRes.Similarity.ToString("0.000", CultureInfo.InvariantCulture) + 
                 " margin=" + alienMargin.ToString("0.000", CultureInfo.InvariantCulture) +

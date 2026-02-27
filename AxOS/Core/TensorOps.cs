@@ -44,13 +44,13 @@ namespace AxOS.Core
             for (int i = 0; i < outVec.Data.Length; i++)
             {
                 float val = outVec.Data[i];
-                // Manual finite check: NaN check (x != x) and Infinity check
-                if (val != val || float.IsInfinity(val)) val = 0.0f;
+                // Manual finite check: NaN check and Infinity check
+                if (float.IsNaN(val) || float.IsInfinity(val)) val = 0.0f;
                 sumSq += (double)val * val;
             }
 
             double norm = Math.Sqrt(sumSq);
-            if (norm != norm || norm < eps) // NaN check + eps
+            if (double.IsNaN(norm) || norm < eps) // NaN check + eps
             {
                 outVec.Fill(0.0f);
                 return outVec;
@@ -60,7 +60,7 @@ namespace AxOS.Core
             for (int i = 0; i < outVec.Data.Length; i++)
             {
                 float val = outVec.Data[i];
-                if (val != val || float.IsInfinity(val)) val = 0.0f;
+                if (float.IsNaN(val) || float.IsInfinity(val)) val = 0.0f;
                 outVec.Data[i] = val * inv;
             }
 
@@ -101,8 +101,8 @@ namespace AxOS.Core
             {
                 float a = lhs.Data[i];
                 float b = rhs.Data[i];
-                if (a != a || float.IsInfinity(a)) a = 0.0f;
-                if (b != b || float.IsInfinity(b)) b = 0.0f;
+                if (float.IsNaN(a) || float.IsInfinity(a)) a = 0.0f;
+                if (float.IsNaN(b) || float.IsInfinity(b)) b = 0.0f;
                 outVec.Data[i] = a + b;
             }
             return normalize ? NormalizeL2(outVec) : outVec;
@@ -139,8 +139,8 @@ namespace AxOS.Core
             {
                 float la = lhs.Data[i];
                 float ra = rhs.Data[i];
-                if (la != la || float.IsInfinity(la)) la = 0.0f;
-                if (ra != ra || float.IsInfinity(ra)) ra = 0.0f;
+                if (float.IsNaN(la) || float.IsInfinity(la)) la = 0.0f;
+                if (float.IsNaN(ra) || float.IsInfinity(ra)) ra = 0.0f;
 
                 double a = (double)la;
                 double b = (double)ra;
@@ -153,10 +153,10 @@ namespace AxOS.Core
             double rhsNorm = Math.Sqrt(rhsSq);
             double denom = Math.Max(eps, lhsNorm * rhsNorm);
             
-            if (denom == 0 || denom != denom) return 0.0;
+            if (denom == 0 || double.IsNaN(denom)) return 0.0;
 
             float sim = (float)(dot / denom);
-            if (sim != sim) return 0.0;
+            if (float.IsNaN(sim)) return 0.0;
             if (sim > 1.0f) return 1.0;
             if (sim < -1.0f) return -1.0;
             return sim;
