@@ -1734,8 +1734,8 @@ namespace AxOS
                     HolographicRenderer.RenderConfig config = new HolographicRenderer.RenderConfig
                     {
                         DurationSeconds = args.Count > 2 ? ParseInt(args[2], 8) : 8,
-                        ScreenWidth = args.Count > 3 ? ParseInt(args[3], 0) : 0,
-                        ScreenHeight = args.Count > 4 ? ParseInt(args[4], 0) : 0,
+                        ScreenWidth = args.Count > 3 ? ParseInt(args[3], 640) : 640,
+                        ScreenHeight = args.Count > 4 ? ParseInt(args[4], 480) : 480,
                         LogicalWidth = args.Count > 5 ? ParseInt(args[5], 24) : 24,
                         LogicalHeight = args.Count > 6 ? ParseInt(args[6], 18) : 18,
                         Dim = args.Count > 7 ? ParseInt(args[7], 48) : 48,
@@ -1787,6 +1787,10 @@ namespace AxOS
                         report.Dim +
                         ", threshold=" +
                         report.Threshold.ToString("0.000", CultureInfo.InvariantCulture) +
+                        ", mode=" +
+                        report.ScreenWidth +
+                        "x" +
+                        report.ScreenHeight +
                         ", exited_by_key=" +
                         report.ExitedByKey);
                     break;
