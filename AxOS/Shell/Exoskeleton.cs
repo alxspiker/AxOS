@@ -1014,7 +1014,7 @@ namespace AxOS
         private void RunStartupTestSequence()
         {
             WriteBootAndSerialLine("startup: running holo demo");
-            HandleHolo(new List<string> { "holo", "demo" });
+            HandleHolo(new List<string> { "holo", "demo", "debug" });
 
             WriteBootAndSerialLine("startup: tests complete, shutting down");
             ShutdownSystem();
@@ -1023,6 +1023,24 @@ namespace AxOS
         private void WriteBootAndSerialLine(string text)
         {
             MirrorWriteLine(text);
+        }
+
+        private static bool HasToken(List<string> args, string token)
+        {
+            if (args == null || string.IsNullOrEmpty(token))
+            {
+                return false;
+            }
+
+            for (int i = 0; i < args.Count; i++)
+            {
+                if (string.Equals(args[i], token, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
 
@@ -1740,7 +1758,8 @@ namespace AxOS
                         LogicalHeight = args.Count > 6 ? ParseInt(args[6], 18) : 18,
                         Dim = args.Count > 7 ? ParseInt(args[7], 48) : 48,
                         Threshold = args.Count > 8 ? ParseDouble(args[8], 0.002) : 0.002,
-                        TargetFps = args.Count > 9 ? ParseInt(args[9], 8) : 8
+                        TargetFps = args.Count > 9 ? ParseInt(args[9], 8) : 8,
+                        DebugOverlay = HasToken(args, "debug")
                     };
 
                     string modeText = (config.ScreenWidth > 0 && config.ScreenHeight > 0)
@@ -1762,6 +1781,8 @@ namespace AxOS
                         config.TargetFps +
                         ", duration_s=" +
                         config.DurationSeconds +
+                        ", debug=" +
+                        config.DebugOverlay +
                         " (ESC/Enter/Q to exit)");
 
                     if (!_holographicRenderer.RunDemo(config, out HolographicRenderer.RenderReport report, out string error))
@@ -1791,6 +1812,20 @@ namespace AxOS
                         report.ScreenWidth +
                         "x" +
                         report.ScreenHeight +
+                        ", debug=" +
+                        report.DebugOverlay +
+                        ", frame0_nonblack_y=" +
+                        report.Frame0NonBlackMinY +
+                        "-" +
+                        report.Frame0NonBlackMaxY +
+                        ", frame0_nonblack_blocks=" +
+                        report.Frame0NonBlackBlocks +
+                        "/" +
+                        report.Frame0TotalBlocks +
+                        ", frame0_luma_avg=" +
+                        report.Frame0AvgLuma.ToString("0.000", CultureInfo.InvariantCulture) +
+                        ", frame0_luma_peak=" +
+                        report.Frame0PeakLuma.ToString("0.000", CultureInfo.InvariantCulture) +
                         ", exited_by_key=" +
                         report.ExitedByKey);
                     break;
@@ -1895,9 +1930,10 @@ namespace AxOS
         private void PrintHoloHelp()
         {
             WriteInteractiveLine("holo commands:");
-            WriteInteractiveLine("  holo demo [seconds] [screen_w] [screen_h] [logical_w] [logical_h] [dim] [threshold] [fps]");
-            WriteInteractiveLine("  holo render [seconds] [screen_w] [screen_h] [logical_w] [logical_h] [dim] [threshold] [fps]");
-            WriteInteractiveLine("  demo profile default: 320x240, logical 24x18, dim 48");
+            WriteInteractiveLine("  holo demo [seconds] [screen_w] [screen_h] [logical_w] [logical_h] [dim] [threshold] [fps] [debug]");
+            WriteInteractiveLine("  holo render [seconds] [screen_w] [screen_h] [logical_w] [logical_h] [dim] [threshold] [fps] [debug]");
+            WriteInteractiveLine("  demo profile default: 640x480, logical 24x18, dim 48");
+            WriteInteractiveLine("  add 'debug' to draw guide lines and emit frame diagnostics");
         }
 
         private bool TryEncodeText(string text, int requestedDim, out Tensor encoded, out List<string> tokens, out string error)

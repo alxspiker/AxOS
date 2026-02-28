@@ -27,6 +27,7 @@ namespace AxOS.Hardware
             public double Threshold = 0.002;
             public int TargetFps = 8;
             public int Seed = 1337;
+            public bool DebugOverlay = false;
         }
 
         public sealed class RenderReport
@@ -46,6 +47,13 @@ namespace AxOS.Hardware
             public double PeakBestSimilarity;
             public long ElapsedMilliseconds;
             public bool ExitedByKey;
+            public bool DebugOverlay;
+            public int Frame0NonBlackMinY = -1;
+            public int Frame0NonBlackMaxY = -1;
+            public int Frame0NonBlackBlocks;
+            public int Frame0TotalBlocks;
+            public double Frame0AvgLuma;
+            public double Frame0PeakLuma;
         }
 
         private sealed class PaletteEntry
@@ -53,6 +61,16 @@ namespace AxOS.Hardware
             public string Name = string.Empty;
             public Color Color = Color.Black;
             public Tensor Vector = new Tensor();
+        }
+
+        private sealed class FrameDebugStats
+        {
+            public int NonBlackMinY = int.MaxValue;
+            public int NonBlackMaxY = -1;
+            public int NonBlackBlocks;
+            public int TotalBlocks;
+            public double LumaSum;
+            public double PeakLuma;
         }
 
         public bool RunDemo(RenderConfig config, out RenderReport report, out string error)
@@ -77,6 +95,7 @@ namespace AxOS.Hardware
             int fps = Clamp(config.TargetFps, 1, 30);
             double threshold = Clamp(config.Threshold, -1.0, 1.0);
             int seed = config.Seed;
+            bool debugOverlay = config.DebugOverlay;
 
             Canvas canvas = null;
             DateTime startedUtc = DateTime.UtcNow;
@@ -143,12 +162,14 @@ namespace AxOS.Hardware
                 int phase = 0;
                 int renderedFrames = 0;
                 bool exitedByKey = false;
+                FrameDebugStats frame0Debug = null;
 
                 while (renderedFrames < targetFrames)
                 {
                     TensorOps.PermuteInPlace(sceneTensor, phase, frameSceneScratch);
                     double frameAvgSimilarity;
                     double framePeakSimilarity;
+                    FrameDebugStats currentDebug = renderedFrames == 0 ? new FrameDebugStats() : null;
                     try
                     {
                         RenderFrame(
@@ -163,6 +184,8 @@ namespace AxOS.Hardware
                             phase,
                             canvas,
                             framePen,
+                            debugOverlay,
+                            currentDebug,
                             out frameAvgSimilarity,
                             out framePeakSimilarity);
                     }
@@ -184,6 +207,11 @@ namespace AxOS.Hardware
                             ", detail=" +
                             ex.Message;
                         return false;
+                    }
+
+                    if (renderedFrames == 0)
+                    {
+                        frame0Debug = currentDebug;
                     }
 
                     try
@@ -249,6 +277,16 @@ namespace AxOS.Hardware
                 report.PeakBestSimilarity = peakSimilarity;
                 report.ElapsedMilliseconds = (long)elapsed.TotalMilliseconds;
                 report.ExitedByKey = exitedByKey;
+                report.DebugOverlay = debugOverlay;
+                if (frame0Debug != null)
+                {
+                    report.Frame0NonBlackMinY = frame0Debug.NonBlackBlocks > 0 ? frame0Debug.NonBlackMinY : -1;
+                    report.Frame0NonBlackMaxY = frame0Debug.NonBlackBlocks > 0 ? frame0Debug.NonBlackMaxY : -1;
+                    report.Frame0NonBlackBlocks = frame0Debug.NonBlackBlocks;
+                    report.Frame0TotalBlocks = frame0Debug.TotalBlocks;
+                    report.Frame0AvgLuma = frame0Debug.TotalBlocks > 0 ? frame0Debug.LumaSum / frame0Debug.TotalBlocks : 0.0;
+                    report.Frame0PeakLuma = frame0Debug.PeakLuma;
+                }
                 return true;
             }
             catch (Exception ex)
@@ -421,6 +459,8 @@ namespace AxOS.Hardware
             int phase,
             Canvas canvas,
             Pen pen,
+            bool debugOverlay,
+            FrameDebugStats debugStats,
             out double averageBestSimilarity,
             out double peakBestSimilarity)
         {
@@ -495,7 +535,38 @@ namespace AxOS.Hardware
                     }
 
                     DrawBlock(canvas, pen, x0, y0, x1, y1, output, screenWidth, screenHeight);
+
+                    if (debugStats != null)
+                    {
+                        double luma = ComputeLuma(output);
+                        debugStats.TotalBlocks++;
+                        debugStats.LumaSum += luma;
+                        if (luma > debugStats.PeakLuma)
+                        {
+                            debugStats.PeakLuma = luma;
+                        }
+
+                        if (output.ToArgb() != Color.Black.ToArgb())
+                        {
+                            int minY = Clamp(y0, 0, screenHeight - 1);
+                            int maxY = Clamp(y1 - 1, 0, screenHeight - 1);
+                            if (minY < debugStats.NonBlackMinY)
+                            {
+                                debugStats.NonBlackMinY = minY;
+                            }
+                            if (maxY > debugStats.NonBlackMaxY)
+                            {
+                                debugStats.NonBlackMaxY = maxY;
+                            }
+                            debugStats.NonBlackBlocks++;
+                        }
+                    }
                 }
+            }
+
+            if (debugOverlay)
+            {
+                DrawDebugOverlay(canvas, pen, screenWidth, screenHeight, debugStats);
             }
 
             averageBestSimilarity = sampleCount > 0 ? sumBest / sampleCount : 0.0;
@@ -511,15 +582,54 @@ namespace AxOS.Hardware
 
             int sx0 = Clamp(x0, 0, screenWidth - 1);
             int sy0 = Clamp(y0, 0, screenHeight - 1);
-            int sx1 = Clamp(x1, 0, screenWidth);
-            int sy1 = Clamp(y1, 0, screenHeight);
-            if (sx1 <= sx0 || sy1 <= sy0)
+            int sx1 = Clamp(x1 - 1, 0, screenWidth - 1);
+            int sy1 = Clamp(y1 - 1, 0, screenHeight - 1);
+            if (sx1 < sx0 || sy1 < sy0)
             {
                 return;
             }
 
             pen.Color = color;
-            canvas.DrawFilledRectangle(pen, sx0, sy0, sx1 - sx0, sy1 - sy0);
+            for (int py = sy0; py <= sy1; py++)
+            {
+                canvas.DrawLine(pen, sx0, py, sx1, py);
+            }
+        }
+
+        private static void DrawDebugOverlay(Canvas canvas, Pen pen, int screenWidth, int screenHeight, FrameDebugStats stats)
+        {
+            if (screenWidth <= 1 || screenHeight <= 1)
+            {
+                return;
+            }
+
+            int maxX = screenWidth - 1;
+            int maxY = screenHeight - 1;
+            int y25 = maxY / 4;
+            int y50 = maxY / 2;
+            int y75 = (maxY * 3) / 4;
+
+            pen.Color = Color.White;
+            canvas.DrawLine(pen, 0, 0, maxX, 0);
+            canvas.DrawLine(pen, 0, maxY, maxX, maxY);
+            canvas.DrawLine(pen, 0, 0, 0, maxY);
+            canvas.DrawLine(pen, maxX, 0, maxX, maxY);
+
+            pen.Color = Color.FromArgb(255, 64, 64);
+            canvas.DrawLine(pen, 0, y25, maxX, y25);
+            pen.Color = Color.FromArgb(64, 255, 64);
+            canvas.DrawLine(pen, 0, y50, maxX, y50);
+            pen.Color = Color.FromArgb(64, 64, 255);
+            canvas.DrawLine(pen, 0, y75, maxX, y75);
+
+            if (stats != null && stats.NonBlackBlocks > 0)
+            {
+                int yMin = Clamp(stats.NonBlackMinY, 0, maxY);
+                int yMax = Clamp(stats.NonBlackMaxY, 0, maxY);
+                pen.Color = Color.Yellow;
+                canvas.DrawLine(pen, 0, yMin, maxX, yMin);
+                canvas.DrawLine(pen, 0, yMax, maxX, yMax);
+            }
         }
 
         private static Color ScaleColor(Color color, double intensity)
@@ -528,6 +638,11 @@ namespace AxOS.Hardware
             int g = Clamp((int)(color.G * intensity), 0, 255);
             int b = Clamp((int)(color.B * intensity), 0, 255);
             return Color.FromArgb(r, g, b);
+        }
+
+        private static double ComputeLuma(Color color)
+        {
+            return ((0.2126 * color.R) + (0.7152 * color.G) + (0.0722 * color.B)) / 255.0;
         }
 
         private static double DotBound(float[] scene, float[] query, float[] color)
