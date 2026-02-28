@@ -1734,8 +1734,8 @@ namespace AxOS
                     HolographicRenderer.RenderConfig config = new HolographicRenderer.RenderConfig
                     {
                         DurationSeconds = args.Count > 2 ? ParseInt(args[2], 8) : 8,
-                        ScreenWidth = args.Count > 3 ? ParseInt(args[3], 320) : 320,
-                        ScreenHeight = args.Count > 4 ? ParseInt(args[4], 240) : 240,
+                        ScreenWidth = args.Count > 3 ? ParseInt(args[3], 0) : 0,
+                        ScreenHeight = args.Count > 4 ? ParseInt(args[4], 0) : 0,
                         LogicalWidth = args.Count > 5 ? ParseInt(args[5], 24) : 24,
                         LogicalHeight = args.Count > 6 ? ParseInt(args[6], 18) : 18,
                         Dim = args.Count > 7 ? ParseInt(args[7], 48) : 48,
@@ -1743,11 +1743,13 @@ namespace AxOS
                         TargetFps = args.Count > 9 ? ParseInt(args[9], 8) : 8
                     };
 
+                    string modeText = (config.ScreenWidth > 0 && config.ScreenHeight > 0)
+                        ? (config.ScreenWidth + "x" + config.ScreenHeight)
+                        : "auto";
+
                     WriteInteractiveLine(
                         "holo_render_start: mode=" +
-                        config.ScreenWidth +
-                        "x" +
-                        config.ScreenHeight +
+                        modeText +
                         ", logical=" +
                         config.LogicalWidth +
                         "x" +

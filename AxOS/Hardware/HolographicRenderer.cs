@@ -19,8 +19,8 @@ namespace AxOS.Hardware
         public sealed class RenderConfig
         {
             public int DurationSeconds = 8;
-            public int ScreenWidth = 320;
-            public int ScreenHeight = 240;
+            public int ScreenWidth = 0;
+            public int ScreenHeight = 0;
             public int LogicalWidth = 24;
             public int LogicalHeight = 18;
             public int Dim = 48;
@@ -67,8 +67,10 @@ namespace AxOS.Hardware
             }
 
             int seconds = Clamp(config.DurationSeconds, 1, 120);
-            int screenWidth = Clamp(config.ScreenWidth, 160, 1024);
-            int screenHeight = Clamp(config.ScreenHeight, 120, 768);
+            int requestedScreenWidth = config.ScreenWidth;
+            int requestedScreenHeight = config.ScreenHeight;
+            int screenWidth = 0;
+            int screenHeight = 0;
             int logicalWidth = Clamp(config.LogicalWidth, 24, 200);
             int logicalHeight = Clamp(config.LogicalHeight, 18, 160);
             int dim = Clamp(config.Dim, 32, 4096);
@@ -82,7 +84,16 @@ namespace AxOS.Hardware
             {
                 try
                 {
-                    canvas = FullScreenCanvas.GetFullScreenCanvas();
+                    if (requestedScreenWidth > 0 && requestedScreenHeight > 0)
+                    {
+                        int reqW = Clamp(requestedScreenWidth, 160, 1024);
+                        int reqH = Clamp(requestedScreenHeight, 120, 768);
+                        canvas = FullScreenCanvas.GetFullScreenCanvas(new Mode(reqW, reqH, ColorDepth.ColorDepth32));
+                    }
+                    else
+                    {
+                        canvas = FullScreenCanvas.GetFullScreenCanvas();
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -92,16 +103,6 @@ namespace AxOS.Hardware
                 if (canvas == null)
                 {
                     error = "graphics_canvas_unavailable";
-                    return false;
-                }
-
-                try
-                {
-                    canvas.Mode = new Mode(screenWidth, screenHeight, ColorDepth.ColorDepth32);
-                }
-                catch (Exception ex)
-                {
-                    error = "graphics_mode_set_failed:" + ex.Message;
                     return false;
                 }
 
@@ -159,6 +160,7 @@ namespace AxOS.Hardware
                             logicalHeight,
                             screenWidth,
                             screenHeight,
+                            phase,
                             canvas,
                             framePen,
                             out frameAvgSimilarity,
@@ -399,7 +401,12 @@ namespace AxOS.Hardware
                 return 4 % paletteLength;
             }
 
-            return -1;
+            int wave = (x * 5 + y * 3 + (x ^ y)) % paletteLength;
+            if (wave < 0)
+            {
+                wave += paletteLength;
+            }
+            return wave;
         }
 
         private static void RenderFrame(
@@ -411,6 +418,7 @@ namespace AxOS.Hardware
             int logicalHeight,
             int screenWidth,
             int screenHeight,
+            int phase,
             Canvas canvas,
             Pen pen,
             out double averageBestSimilarity,
@@ -420,6 +428,7 @@ namespace AxOS.Hardware
             double sumBest = 0.0;
             double maxBest = -1.0;
             int sampleCount = 0;
+            int phaseShift = logicalWidth > 0 ? (phase % logicalWidth) : 0;
 
             for (int y = 0; y < logicalHeight; y++)
             {
@@ -447,7 +456,13 @@ namespace AxOS.Hardware
                         x1 = screenWidth;
                     }
 
-                    int idx = y * logicalWidth + x;
+                    int shiftedX = x + phaseShift;
+                    if (shiftedX >= logicalWidth)
+                    {
+                        shiftedX -= logicalWidth;
+                    }
+
+                    int idx = y * logicalWidth + shiftedX;
                     float[] query = coordinates[idx].Data;
                     int bestPalette = -1;
                     double bestScore = -2.0;
@@ -470,11 +485,12 @@ namespace AxOS.Hardware
                     }
 
                     Color output = Color.Black;
-                    if (bestPalette >= 0 && bestScore >= threshold)
+                    if (bestPalette >= 0)
                     {
-                        double intensity = threshold < 1.0
-                            ? Clamp((bestScore - threshold) / (1.0 - threshold), 0.0, 1.0)
-                            : 1.0;
+                        double normalized = Clamp((bestScore + 1.0) * 0.5, 0.0, 1.0);
+                        double intensity = bestScore >= threshold
+                            ? 0.35 + (0.65 * normalized)
+                            : 0.10 + (0.20 * normalized);
                         output = ScaleColor(palette[bestPalette].Color, intensity);
                     }
 
