@@ -21,11 +21,11 @@ namespace AxOS.Hardware
             public int DurationSeconds = 8;
             public int ScreenWidth = 320;
             public int ScreenHeight = 240;
-            public int LogicalWidth = 96;
-            public int LogicalHeight = 72;
-            public int Dim = 256;
-            public double Threshold = 0.15;
-            public int TargetFps = 10;
+            public int LogicalWidth = 24;
+            public int LogicalHeight = 18;
+            public int Dim = 48;
+            public double Threshold = 0.002;
+            public int TargetFps = 8;
             public int Seed = 1337;
         }
 
@@ -85,7 +85,7 @@ namespace AxOS.Hardware
             int screenHeight = Clamp(config.ScreenHeight, 120, 768);
             int logicalWidth = Clamp(config.LogicalWidth, 24, 200);
             int logicalHeight = Clamp(config.LogicalHeight, 18, 160);
-            int dim = Clamp(config.Dim, 64, 4096);
+            int dim = Clamp(config.Dim, 32, 4096);
             int fps = Clamp(config.TargetFps, 1, 30);
             double threshold = Clamp(config.Threshold, -1.0, 1.0);
             int seed = config.Seed;
@@ -442,11 +442,31 @@ namespace AxOS.Hardware
             }
 
             pen.Color = color;
-            int xLast = x1 - 1;
-            for (int y = y0; y < y1; y++)
+            canvas.DrawFilledRectangle(pen, x0, y0, x1 - x0, y1 - y0);
+        }
+
+        private static bool IsSupportedVbeMode(Mode candidate)
+        {
+            for (int i = 0; i < SupportedVbeModes.Length; i++)
             {
-                canvas.DrawLine(pen, x0, y, xLast, y);
+                if (SupportedVbeModes[i].Equals(candidate))
+                {
+                    return true;
+                }
             }
+            return false;
+        }
+
+        private static string FormatSupportedVbeModes()
+        {
+            string output = string.Empty;
+            for (int i = 0; i < SupportedVbeModes.Length; i++)
+            {
+                Mode m = SupportedVbeModes[i];
+                string token = m.Columns + "x" + m.Rows;
+                output = output.Length == 0 ? token : output + "," + token;
+            }
+            return output;
         }
 
         private static Color ScaleColor(Color color, double intensity)
@@ -477,30 +497,6 @@ namespace AxOS.Hardware
                 hash *= 1099511628211UL;
             }
             return hash;
-        }
-
-        private static bool IsSupportedVbeMode(Mode candidate)
-        {
-            for (int i = 0; i < SupportedVbeModes.Length; i++)
-            {
-                if (SupportedVbeModes[i].Equals(candidate))
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        private static string FormatSupportedVbeModes()
-        {
-            string output = string.Empty;
-            for (int i = 0; i < SupportedVbeModes.Length; i++)
-            {
-                Mode m = SupportedVbeModes[i];
-                string token = m.Columns + "x" + m.Rows;
-                output = output.Length == 0 ? token : output + "," + token;
-            }
-            return output;
         }
 
         private static int Clamp(int value, int min, int max)

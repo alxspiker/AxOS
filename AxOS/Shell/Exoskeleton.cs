@@ -38,7 +38,7 @@ namespace AxOS
         private DateTime _bootUtc;
         private const int DefaultDim = 1024;
         private const int PreviewValues = 8;
-        private static readonly bool AutoRunStartupTestSequence = false;
+        private static readonly bool AutoRunStartupTestSequence = true;
         private HdcSystem _hdc => _semanticHdc;
 
         public Exoskeleton()
@@ -1013,16 +1013,8 @@ namespace AxOS
 
         private void RunStartupTestSequence()
         {
-            WriteBootAndSerialLine("startup: running kernel test");
-            AxOS.Diagnostics.KernelTest.RunBiologicalStressTest(
-                _axKernelLoop,
-                _axBatchController,
-                GetHardwareSynapse(),
-                WriteBootAndSerialLine,
-                null);
-
-            WriteBootAndSerialLine("startup: running appdemo");
-            AxOS.Diagnostics.AppDemo.RunIsolatedManifoldDemo(_axKernelLoop, WriteBootAndSerialLine);
+            WriteBootAndSerialLine("startup: running holo demo");
+            HandleHolo(new List<string> { "holo", "demo" });
 
             WriteBootAndSerialLine("startup: tests complete, shutting down");
             ShutdownSystem();
@@ -1744,11 +1736,11 @@ namespace AxOS
                         DurationSeconds = args.Count > 2 ? ParseInt(args[2], 8) : 8,
                         ScreenWidth = args.Count > 3 ? ParseInt(args[3], 320) : 320,
                         ScreenHeight = args.Count > 4 ? ParseInt(args[4], 240) : 240,
-                        LogicalWidth = args.Count > 5 ? ParseInt(args[5], 96) : 96,
-                        LogicalHeight = args.Count > 6 ? ParseInt(args[6], 72) : 72,
-                        Dim = args.Count > 7 ? ParseInt(args[7], 256) : 256,
-                        Threshold = args.Count > 8 ? ParseDouble(args[8], 0.15) : 0.15,
-                        TargetFps = args.Count > 9 ? ParseInt(args[9], 10) : 10
+                        LogicalWidth = args.Count > 5 ? ParseInt(args[5], 24) : 24,
+                        LogicalHeight = args.Count > 6 ? ParseInt(args[6], 18) : 18,
+                        Dim = args.Count > 7 ? ParseInt(args[7], 48) : 48,
+                        Threshold = args.Count > 8 ? ParseDouble(args[8], 0.002) : 0.002,
+                        TargetFps = args.Count > 9 ? ParseInt(args[9], 8) : 8
                     };
 
                     WriteInteractiveLine(
@@ -1899,7 +1891,7 @@ namespace AxOS
             WriteInteractiveLine("holo commands:");
             WriteInteractiveLine("  holo demo [seconds] [screen_w] [screen_h] [logical_w] [logical_h] [dim] [threshold] [fps]");
             WriteInteractiveLine("  holo render [seconds] [screen_w] [screen_h] [logical_w] [logical_h] [dim] [threshold] [fps]");
-            WriteInteractiveLine("  supported modes (strict VBE32): 320x240,640x480,800x600,1024x768,1280x720,1280x1024,1366x768,1680x1050,1920x1080,1920x1200");
+            WriteInteractiveLine("  demo profile default: 320x240, logical 24x18, dim 48");
         }
 
         private bool TryEncodeText(string text, int requestedDim, out Tensor encoded, out List<string> tokens, out string error)
