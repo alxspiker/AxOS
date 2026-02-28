@@ -93,6 +93,22 @@ namespace AxOS.Core
             return outVec;
         }
 
+        public static void BindInPlace(Tensor lhs, Tensor rhs, Tensor target)
+        {
+            RequireCompatible(lhs, rhs, "bind_inplace");
+            if (target == null || target.Total != lhs.Total)
+            {
+                throw new ArgumentException("bind_inplace: target tensor element count mismatch");
+            }
+
+            for (int i = 0; i < target.Data.Length; i++)
+            {
+                float a = float.IsFinite(lhs.Data[i]) ? lhs.Data[i] : 0.0f;
+                float b = float.IsFinite(rhs.Data[i]) ? rhs.Data[i] : 0.0f;
+                target.Data[i] = a * b;
+            }
+        }
+
         public static Tensor Bundle(Tensor lhs, Tensor rhs, bool normalize = true)
         {
             RequireCompatible(lhs, rhs, "bundle");
@@ -127,6 +143,52 @@ namespace AxOS.Core
             
             // Re-wrap with original shape to avoid logic "gaslighting"
             return new Tensor(rotated).Reshape(input.Shape);
+        }
+
+        public static void PermuteInPlace(Tensor input, int steps, Tensor target)
+        {
+            if (input == null || target == null)
+            {
+                throw new ArgumentNullException("permute_inplace: input/target cannot be null");
+            }
+
+            int n = input.Data.Length;
+            if (target.Total != n)
+            {
+                throw new ArgumentException("permute_inplace: target tensor element count mismatch");
+            }
+
+            if (n == 0)
+            {
+                return;
+            }
+
+            int mod = steps % n;
+            int shift = mod < 0 ? mod + n : mod;
+
+            if (ReferenceEquals(input, target))
+            {
+                if (shift == 0)
+                {
+                    return;
+                }
+                throw new ArgumentException("permute_inplace: input and target must differ when shift != 0");
+            }
+
+            if (shift == 0)
+            {
+                for (int i = 0; i < n; i++)
+                {
+                    target.Data[i] = input.Data[i];
+                }
+                return;
+            }
+
+            for (int i = 0; i < n; i++)
+            {
+                int dst = (i + shift) % n;
+                target.Data[dst] = input.Data[i];
+            }
         }
 
         public static double CosineSimilarity(Tensor lhs, Tensor rhs, float eps = 1e-8f)

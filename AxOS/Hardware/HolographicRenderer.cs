@@ -55,20 +55,6 @@ namespace AxOS.Hardware
             public Tensor Vector = new Tensor();
         }
 
-        private static readonly Mode[] SupportedVbeModes = new[]
-        {
-            new Mode(320, 240, ColorDepth.ColorDepth32),
-            new Mode(640, 480, ColorDepth.ColorDepth32),
-            new Mode(800, 600, ColorDepth.ColorDepth32),
-            new Mode(1024, 768, ColorDepth.ColorDepth32),
-            new Mode(1280, 720, ColorDepth.ColorDepth32),
-            new Mode(1280, 1024, ColorDepth.ColorDepth32),
-            new Mode(1366, 768, ColorDepth.ColorDepth32),
-            new Mode(1680, 1050, ColorDepth.ColorDepth32),
-            new Mode(1920, 1080, ColorDepth.ColorDepth32),
-            new Mode(1920, 1200, ColorDepth.ColorDepth32)
-        };
-
         public bool RunDemo(RenderConfig config, out RenderReport report, out string error)
         {
             report = new RenderReport();
@@ -90,39 +76,65 @@ namespace AxOS.Hardware
             double threshold = Clamp(config.Threshold, -1.0, 1.0);
             int seed = config.Seed;
 
-            if (logicalWidth > screenWidth)
-            {
-                logicalWidth = screenWidth;
-            }
-            if (logicalHeight > screenHeight)
-            {
-                logicalHeight = screenHeight;
-            }
-
             Canvas canvas = null;
             DateTime startedUtc = DateTime.UtcNow;
             try
             {
-                Mode mode = new Mode(screenWidth, screenHeight, ColorDepth.ColorDepth32);
-                if (!IsSupportedVbeMode(mode))
+                try
                 {
-                    error = "vbe_mode_unsupported:" + FormatSupportedVbeModes();
+                    canvas = FullScreenCanvas.GetFullScreenCanvas();
+                }
+                catch (Exception ex)
+                {
+                    error = "graphics_unavailable:" + ex.Message;
+                    return false;
+                }
+                if (canvas == null)
+                {
+                    error = "graphics_canvas_unavailable";
                     return false;
                 }
 
                 try
                 {
-                    canvas = new VBECanvas(mode);
+                    canvas.Mode = new Mode(screenWidth, screenHeight, ColorDepth.ColorDepth32);
                 }
                 catch (Exception ex)
                 {
-                    error = "vbe_unavailable:" + ex.Message;
+                    error = "graphics_mode_set_failed:" + ex.Message;
                     return false;
+                }
+
+                Mode mode = canvas.Mode;
+                if (mode.Columns <= 0 || mode.Rows <= 0)
+                {
+                    error = "graphics_mode_invalid";
+                    return false;
+                }
+                screenWidth = mode.Columns;
+                screenHeight = mode.Rows;
+                if (logicalWidth > screenWidth)
+                {
+                    logicalWidth = screenWidth;
+                }
+                if (logicalHeight > screenHeight)
+                {
+                    logicalHeight = screenHeight;
+                }
+
+                try
+                {
+                    canvas.Clear(Color.Black);
+                }
+                catch
+                {
                 }
 
                 Tensor[] coordinates = BuildCoordinateField(logicalWidth, logicalHeight, dim, (ulong)(uint)seed);
                 PaletteEntry[] palette = BuildPalette(dim, (ulong)(uint)seed);
                 Tensor sceneTensor = BuildSceneTensor(logicalWidth, logicalHeight, coordinates, palette, out int encodedPoints);
+                Tensor frameSceneScratch = sceneTensor.Copy();
+                Pen framePen = new Pen(Color.Black, 1);
 
                 int targetFrames = Math.Max(1, seconds * fps);
                 double frameAverageAccumulator = 0.0;
@@ -133,21 +145,62 @@ namespace AxOS.Hardware
 
                 while (renderedFrames < targetFrames)
                 {
-                    Tensor frameScene = phase == 0 ? sceneTensor : TensorOps.Permute(sceneTensor, phase);
-                    RenderFrame(
-                        frameScene,
-                        coordinates,
-                        palette,
-                        threshold,
-                        logicalWidth,
-                        logicalHeight,
-                        screenWidth,
-                        screenHeight,
-                        canvas,
-                        out double frameAvgSimilarity,
-                        out double framePeakSimilarity);
+                    TensorOps.PermuteInPlace(sceneTensor, phase, frameSceneScratch);
+                    double frameAvgSimilarity;
+                    double framePeakSimilarity;
+                    try
+                    {
+                        RenderFrame(
+                            frameSceneScratch,
+                            coordinates,
+                            palette,
+                            threshold,
+                            logicalWidth,
+                            logicalHeight,
+                            screenWidth,
+                            screenHeight,
+                            canvas,
+                            framePen,
+                            out frameAvgSimilarity,
+                            out framePeakSimilarity);
+                    }
+                    catch (Exception ex)
+                    {
+                        error =
+                            "render_failed:draw_stage:frame=" +
+                            renderedFrames +
+                            ", mode=" +
+                            screenWidth +
+                            "x" +
+                            screenHeight +
+                            ", logical=" +
+                            logicalWidth +
+                            "x" +
+                            logicalHeight +
+                            ", phase=" +
+                            phase +
+                            ", detail=" +
+                            ex.Message;
+                        return false;
+                    }
 
-                    canvas.Display();
+                    try
+                    {
+                        canvas.Display();
+                    }
+                    catch (Exception ex)
+                    {
+                        error =
+                            "render_failed:display_stage:frame=" +
+                            renderedFrames +
+                            ", mode=" +
+                            screenWidth +
+                            "x" +
+                            screenHeight +
+                            ", detail=" +
+                            ex.Message;
+                        return false;
+                    }
 
                     renderedFrames++;
                     frameAverageAccumulator += frameAvgSimilarity;
@@ -359,11 +412,10 @@ namespace AxOS.Hardware
             int screenWidth,
             int screenHeight,
             Canvas canvas,
+            Pen pen,
             out double averageBestSimilarity,
             out double peakBestSimilarity)
         {
-            Pen pen = new Pen(Color.Black, 1);
-
             float[] scene = sceneTensor.Data;
             double sumBest = 0.0;
             double maxBest = -1.0;
@@ -426,7 +478,7 @@ namespace AxOS.Hardware
                         output = ScaleColor(palette[bestPalette].Color, intensity);
                     }
 
-                    DrawBlock(canvas, pen, x0, y0, x1, y1, output);
+                    DrawBlock(canvas, pen, x0, y0, x1, y1, output, screenWidth, screenHeight);
                 }
             }
 
@@ -434,39 +486,30 @@ namespace AxOS.Hardware
             peakBestSimilarity = maxBest;
         }
 
-        private static void DrawBlock(Canvas canvas, Pen pen, int x0, int y0, int x1, int y1, Color color)
+        private static void DrawBlock(Canvas canvas, Pen pen, int x0, int y0, int x1, int y1, Color color, int screenWidth, int screenHeight)
         {
-            if (x1 <= x0 || y1 <= y0)
+            if (screenWidth <= 0 || screenHeight <= 0)
+            {
+                return;
+            }
+
+            int sx0 = Clamp(x0, 0, screenWidth - 1);
+            int sy0 = Clamp(y0, 0, screenHeight - 1);
+            int sx1 = Clamp(x1, 0, screenWidth);
+            int sy1 = Clamp(y1, 0, screenHeight);
+            if (sx1 <= sx0 || sy1 <= sy0)
             {
                 return;
             }
 
             pen.Color = color;
-            canvas.DrawFilledRectangle(pen, x0, y0, x1 - x0, y1 - y0);
-        }
-
-        private static bool IsSupportedVbeMode(Mode candidate)
-        {
-            for (int i = 0; i < SupportedVbeModes.Length; i++)
+            for (int y = sy0; y < sy1; y++)
             {
-                if (SupportedVbeModes[i].Equals(candidate))
+                for (int x = sx0; x < sx1; x++)
                 {
-                    return true;
+                    canvas.DrawPoint(pen, x, y);
                 }
             }
-            return false;
-        }
-
-        private static string FormatSupportedVbeModes()
-        {
-            string output = string.Empty;
-            for (int i = 0; i < SupportedVbeModes.Length; i++)
-            {
-                Mode m = SupportedVbeModes[i];
-                string token = m.Columns + "x" + m.Rows;
-                output = output.Length == 0 ? token : output + "," + token;
-            }
-            return output;
         }
 
         private static Color ScaleColor(Color color, double intensity)
