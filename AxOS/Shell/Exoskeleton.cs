@@ -27,6 +27,7 @@ namespace AxOS
         private readonly KernelLoop _axKernelLoop;
         private readonly BatchController _axBatchController = new BatchController();
         private HardwareSynapse _hardwareSynapse;
+        private readonly HolographicRenderer _holographicRenderer = new HolographicRenderer();
         private readonly PeripheralNerve _peripheralNerve = new PeripheralNerve();
         private CosmosVFS _vfs;
         private bool _serialMode;
@@ -202,6 +203,9 @@ namespace AxOS
                     break;
                 case "synapse":
                     HandleSynapse(args);
+                    break;
+                case "holo":
+                    HandleHolo(args);
                     break;
                 case "appdemo":
                     AxOS.Diagnostics.AppDemo.RunIsolatedManifoldDemo(_axKernelLoop, WriteInteractiveLine);
@@ -1711,6 +1715,95 @@ namespace AxOS
             }
         }
 
+        private void HandleHolo(List<string> args)
+        {
+            if (args.Count < 2)
+            {
+                PrintHoloHelp();
+                return;
+            }
+
+            string sub = args[1].ToLowerInvariant();
+            switch (sub)
+            {
+                case "help":
+                    PrintHoloHelp();
+                    break;
+
+                case "demo":
+                case "render":
+                {
+                    if (_activeCommandFromSerial)
+                    {
+                        WriteInteractiveLine("holo_failed: graphics_requires_local_console");
+                        return;
+                    }
+
+                    HolographicRenderer.RenderConfig config = new HolographicRenderer.RenderConfig
+                    {
+                        DurationSeconds = args.Count > 2 ? ParseInt(args[2], 8) : 8,
+                        ScreenWidth = args.Count > 3 ? ParseInt(args[3], 320) : 320,
+                        ScreenHeight = args.Count > 4 ? ParseInt(args[4], 240) : 240,
+                        LogicalWidth = args.Count > 5 ? ParseInt(args[5], 96) : 96,
+                        LogicalHeight = args.Count > 6 ? ParseInt(args[6], 72) : 72,
+                        Dim = args.Count > 7 ? ParseInt(args[7], 256) : 256,
+                        Threshold = args.Count > 8 ? ParseDouble(args[8], 0.15) : 0.15,
+                        TargetFps = args.Count > 9 ? ParseInt(args[9], 10) : 10
+                    };
+
+                    WriteInteractiveLine(
+                        "holo_render_start: mode=" +
+                        config.ScreenWidth +
+                        "x" +
+                        config.ScreenHeight +
+                        ", logical=" +
+                        config.LogicalWidth +
+                        "x" +
+                        config.LogicalHeight +
+                        ", dim=" +
+                        config.Dim +
+                        ", threshold=" +
+                        config.Threshold.ToString("0.000", CultureInfo.InvariantCulture) +
+                        ", fps=" +
+                        config.TargetFps +
+                        ", duration_s=" +
+                        config.DurationSeconds +
+                        " (ESC/Enter/Q to exit)");
+
+                    if (!_holographicRenderer.RunDemo(config, out HolographicRenderer.RenderReport report, out string error))
+                    {
+                        WriteInteractiveLine("holo_render_failed: " + error);
+                        return;
+                    }
+
+                    WriteInteractiveLine(
+                        "holo_render_complete: frames=" +
+                        report.RenderedFrames +
+                        "/" +
+                        report.TargetFrames +
+                        ", encoded_points=" +
+                        report.EncodedPoints +
+                        ", elapsed_ms=" +
+                        report.ElapsedMilliseconds +
+                        ", avg_best=" +
+                        report.AvgBestSimilarity.ToString("0.000", CultureInfo.InvariantCulture) +
+                        ", peak=" +
+                        report.PeakBestSimilarity.ToString("0.000", CultureInfo.InvariantCulture) +
+                        ", dim=" +
+                        report.Dim +
+                        ", threshold=" +
+                        report.Threshold.ToString("0.000", CultureInfo.InvariantCulture) +
+                        ", exited_by_key=" +
+                        report.ExitedByKey);
+                    break;
+                }
+
+                default:
+                    WriteInteractiveLine("Unknown holo command. Type 'holo help'.");
+                    break;
+            }
+        }
+
 
         private void PrintKernelIngestResult(DataStream input, IngestResult result)
         {
@@ -1799,6 +1892,14 @@ namespace AxOS
             WriteInteractiveLine("  synapse train <hex_string> <intent>");
             WriteInteractiveLine("  synapse pulse <hex_string>");
             WriteInteractiveLine("  synapse seed keyboard");
+        }
+
+        private void PrintHoloHelp()
+        {
+            WriteInteractiveLine("holo commands:");
+            WriteInteractiveLine("  holo demo [seconds] [screen_w] [screen_h] [logical_w] [logical_h] [dim] [threshold] [fps]");
+            WriteInteractiveLine("  holo render [seconds] [screen_w] [screen_h] [logical_w] [logical_h] [dim] [threshold] [fps]");
+            WriteInteractiveLine("  supported modes (strict VBE32): 320x240,640x480,800x600,1024x768,1280x720,1280x1024,1366x768,1680x1050,1920x1080,1920x1200");
         }
 
         private bool TryEncodeText(string text, int requestedDim, out Tensor encoded, out List<string> tokens, out string error)
@@ -2297,6 +2398,7 @@ namespace AxOS
             MirrorWriteLine("  algo <subcommand>     (type 'algo help')");
             MirrorWriteLine("  kernel <subcommand>   (type 'kernel help')");
             MirrorWriteLine("  synapse <subcommand>  (type 'synapse help')");
+            MirrorWriteLine("  holo <subcommand>     (type 'holo help')");
             MirrorWriteLine("  appdemo");
             MirrorWriteLine("  kerneltest");
             MirrorWriteLine("  reboot | shutdown");
