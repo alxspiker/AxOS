@@ -52,8 +52,8 @@ if defined SERIAL_MODE (
     echo Running AxOS...
 )
 
-REM Added "-vga vmware" to give Cosmos a proper virtual SVGA graphics card
-"%QEMU_EXE%" -vga vmware -cdrom "%ISO%" -boot d -m 256 %DISPLAY_OPTS% -drive file="%DATA_IMG%",format=raw,if=ide,media=disk -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot
+REM Use "-vga std" so FullScreenCanvas dynamic path stays stable.
+"%QEMU_EXE%" -vga std -cdrom "%ISO%" -boot d -m 256 %DISPLAY_OPTS% -drive file="%DATA_IMG%",format=raw,if=ide,media=disk -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot
 
 set "QEMU_EXIT=%ERRORLEVEL%"
 echo QEMU exited with code %QEMU_EXIT%.

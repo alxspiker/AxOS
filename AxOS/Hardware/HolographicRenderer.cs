@@ -503,13 +503,7 @@ namespace AxOS.Hardware
             }
 
             pen.Color = color;
-            for (int y = sy0; y < sy1; y++)
-            {
-                for (int x = sx0; x < sx1; x++)
-                {
-                    canvas.DrawPoint(pen, x, y);
-                }
-            }
+            canvas.DrawFilledRectangle(pen, sx0, sy0, sx1 - sx0, sy1 - sy0);
         }
 
         private static Color ScaleColor(Color color, double intensity)
