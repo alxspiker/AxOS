@@ -495,13 +495,13 @@ namespace AxOS.Diagnostics
 
             foreach (var kvp in calcRules.SymbolDefinitions) {
                 int peak = MeasureGeometricShift(new Tensor(new Shape(dim)), kvp.Value);
-                log($"debug_sym_map: {kvp.Key} peak_idx={peak}");
+                log("debug_sym_map: " + kvp.Key + " peak_idx=" + peak);
             }
 
             // 3. The Interactive Inputs (What the user types)
             int inputA = 5;
             int inputB = 7;
-            log($"user_input: Injecting A={inputA}, B={inputB} into geometric space.");
+            log("user_input: Injecting A=" + inputA + ", B=" + inputB + " into geometric space.");
 
             // 4. The Binary Payload (Headless Calculator)
             // Conceptually: MOV RAX, inputA | MOV RBX, inputB | ADD RAX, RBX | SYSCALL | RET
@@ -711,7 +711,12 @@ namespace AxOS.Diagnostics
                     {
                         float margin = pr.Similarity - pr.SecondBestSimilarity;
                         if (float.IsNaN(margin)) margin = 0.0f; // NaN guard
-                        log($"eval: act={opcodeNames[i]} | pred={(string.IsNullOrWhiteSpace(pr.Intent) ? "NONE" : pr.Intent)} | sim={pr.Similarity:F3} | margin={margin:F3} | strict_pass={passedMargin}");
+                        string pred = string.IsNullOrWhiteSpace(pr.Intent) ? "NONE" : pr.Intent;
+                        log("eval: act=" + opcodeNames[i]
+                            + " | pred=" + pred
+                            + " | sim=" + pr.Similarity.ToString("F3", CultureInfo.InvariantCulture)
+                            + " | margin=" + margin.ToString("F3", CultureInfo.InvariantCulture)
+                            + " | strict_pass=" + passedMargin);
                     }
                 }
             }
@@ -804,7 +809,7 @@ namespace AxOS.Diagnostics
             int forcedTotal = 0;
             for (int i = 0; i < numOpcodes; i++)
                 for (int j = 0; j < numOpcodes; j++) forcedTotal += cmForced[i][j];
-            log($"forced_total: {forcedTotal} / {preTotal}");
+            log("forced_total: " + forcedTotal + " / " + preTotal);
 
             log(string.Empty);
             log("--- CONFUSION MATRIX (Strict-Gated with REJECT) ---");
@@ -826,8 +831,8 @@ namespace AxOS.Diagnostics
                 for (int j = 0; j <= numOpcodes; j++) strictTotal += cmStrict[i][j];
                 totalReject += cmStrict[i][numOpcodes];
             }
-            log($"strict_total: {strictTotal} / {preTotal}");
-            log($"reject_rate:  {totalReject}/{preTotal} ({((float)totalReject / preTotal * 100.0f).ToString("0.0", CultureInfo.InvariantCulture)}%)");
+            log("strict_total: " + strictTotal + " / " + preTotal);
+            log("reject_rate:  " + totalReject + "/" + preTotal + " (" + ((float)totalReject / preTotal * 100.0f).ToString("0.0", CultureInfo.InvariantCulture) + "%)");
 
             // 11. Summary
             log(string.Empty);
@@ -943,7 +948,9 @@ namespace AxOS.Diagnostics
             double selfSim = TensorOps.CosineSimilarity(t1, t1);
             float t1Norm = MeasureNorm(t1);
             int t1Peak = FindPeak(t1);
-            log($"sanity_identity: sim(t1, t1) = {selfSim:F4} | norm={t1Norm:F4} | peak={t1Peak} (expect 1.0, 1.0, 50)");
+            log("sanity_identity: sim(t1, t1) = " + selfSim.ToString("F4", CultureInfo.InvariantCulture)
+                + " | norm=" + t1Norm.ToString("F4", CultureInfo.InvariantCulture)
+                + " | peak=" + t1Peak + " (expect 1.0, 1.0, 50)");
 
             // 2. Orthogonality Test
             Tensor t2 = new Tensor(new Shape(dim));
@@ -952,21 +959,26 @@ namespace AxOS.Diagnostics
             double orthSim = TensorOps.CosineSimilarity(t1, t2);
             float t2Norm = MeasureNorm(t2);
             int t2Peak = FindPeak(t2);
-            log($"sanity_ortho: sim(t1, t2) = {orthSim:F4} | norm={t2Norm:F4} | peak={t2Peak} (expect 0.0, 1.0, 100)");
+            log("sanity_ortho: sim(t1, t2) = " + orthSim.ToString("F4", CultureInfo.InvariantCulture)
+                + " | norm=" + t2Norm.ToString("F4", CultureInfo.InvariantCulture)
+                + " | peak=" + t2Peak + " (expect 0.0, 1.0, 100)");
 
             // 3. Bundling Test
             Tensor bundled = TensorOps.Bundle(t1, t2);
             double simA = TensorOps.CosineSimilarity(bundled, t1);
             double simB = TensorOps.CosineSimilarity(bundled, t2);
             float bNorm = MeasureNorm(bundled);
-            log($"sanity_bundle: sim(bundled, t1) = {simA:F4} | sim(bundled, t2) = {simB:F4} | norm={bNorm:F4} (expect 0.707, 0.707, 1.0)");
+            log("sanity_bundle: sim(bundled, t1) = " + simA.ToString("F4", CultureInfo.InvariantCulture)
+                + " | sim(bundled, t2) = " + simB.ToString("F4", CultureInfo.InvariantCulture)
+                + " | norm=" + bNorm.ToString("F4", CultureInfo.InvariantCulture)
+                + " (expect 0.707, 0.707, 1.0)");
             
             // 4. Manual Add Test (Checking aliasing)
             Tensor manual = t1.Copy();
             for(int i=0; i<dim; i++) manual.Data[i] += t2.Data[i];
             manual = TensorOps.NormalizeL2(manual);
             double manSimB = TensorOps.CosineSimilarity(manual, t2);
-            log($"sanity_manual: sim(manual, t2) = {manSimB:F4} (expect ~0.707)");
+            log("sanity_manual: sim(manual, t2) = " + manSimB.ToString("F4", CultureInfo.InvariantCulture) + " (expect ~0.707)");
         }
 
         private static float MeasureNorm(Tensor t)

@@ -1014,7 +1014,7 @@ namespace AxOS
         private void RunStartupTestSequence()
         {
             WriteBootAndSerialLine("startup: running holo demo");
-            HandleHolo(new List<string> { "holo", "demo", "20", "640", "480", "24", "18", "48", "0.002", "8", "mouse", "mouseonly", "bluesquare", "svga", "d32" });
+            HandleHolo(new List<string> { "holo", "demo", "20", "640", "480", "24", "18", "48", "0.002", "8", "mouse", "mouseonly", "bluesquare", "d32" });
 
             WriteBootAndSerialLine("startup: tests complete, shutting down");
             ShutdownSystem();
@@ -2395,8 +2395,7 @@ namespace AxOS
 
         private static void ShutdownSystem()
         {
-            IOPortWrite qemuDebugExit = new IOPortWrite(0xF4);
-            qemuDebugExit.Byte = 0x00;
+            IOPort.Write8(0xF4, 0x00);
 
             while (true)
             {

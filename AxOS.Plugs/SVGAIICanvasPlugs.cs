@@ -1,7 +1,7 @@
 // Copyright (c) 2025-2026 alxspiker. All rights reserved.
 // Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0)
 // See LICENSE file in the project root for full license text.
-using Cosmos.HAL.Drivers.PCI.Video;
+using Cosmos.HAL.Drivers.Video.SVGAII;
 using Cosmos.System.Graphics;
 using IL2CPU.API.Attribs;
 
@@ -18,19 +18,19 @@ namespace AxOS.Hardware
             Image image,
             int x,
             int y,
-            [FieldAccess(Name = "Cosmos.HAL.Drivers.PCI.Video.VMWareSVGAII Cosmos.System.Graphics.SVGAIICanvas._xSVGADriver")]
+            [FieldAccess(Name = "Cosmos.HAL.Drivers.Video.SVGAII.VMWareSVGAII Cosmos.System.Graphics.SVGAIICanvas.driver")]
             ref VMWareSVGAII driver)
         {
-            if (image == null || driver == null || driver.VideoMemory == null)
+            if (image == null || driver == null || driver.videoMemory == null)
             {
                 return;
             }
 
-            int screenW = aThis.Mode.Columns;
-            int screenH = aThis.Mode.Rows;
+            int screenW = (int)aThis.Mode.Width;
+            int screenH = (int)aThis.Mode.Height;
             int width = (int)image.Width;
             int height = (int)image.Height;
-            int[] data = image.rawData;
+            int[] data = image.RawData;
             if (screenW <= 0 || screenH <= 0 || width <= 0 || height <= 0 || data == null)
             {
                 return;
@@ -44,6 +44,11 @@ namespace AxOS.Hardware
                     _rowScratch = new uint[width];
                 }
 
+                uint frameBufferOffset = driver.FrameOffset;
+                uint frameBufferSize = driver.FrameSize;
+                uint bytesPerLine = (uint)screenW * 4U;
+                uint rowBytes = (uint)width * 4U;
+
                 for (int row = 0; row < height; row++)
                 {
                     int src = row * width;
@@ -51,22 +56,17 @@ namespace AxOS.Hardware
                     {
                         _rowScratch[i] = unchecked((uint)data[src + i]);
                     }
-                    uint frameOffset = driver.FrameOffset;
-                    uint frameSize = driver.FrameSize;
-                    int dstPixel = ((y + row) * screenW) + x;
-                    uint dstByte = frameOffset + (uint)(dstPixel * 4);
-                    uint endByte = (uint)(width * 4);
-                    if (frameSize > 0U)
+                    uint dstByte = frameBufferOffset + ((uint)(y + row) * bytesPerLine) + ((uint)x * 4U);
+                    if (frameBufferSize > 0U)
                     {
-                        uint rel = dstByte - frameOffset;
-                        if (rel > frameSize || endByte > frameSize - rel)
+                        uint rel = dstByte - frameBufferOffset;
+                        if (rel > frameBufferSize || rowBytes > frameBufferSize - rel)
                         {
                             continue;
                         }
                     }
-                    driver.VideoMemory.Copy(dstByte, _rowScratch, 0, width);
+                    driver.videoMemory.Copy(dstByte, _rowScratch, 0, width);
                 }
-                driver.Update((uint)x, (uint)y, (uint)width, (uint)height);
                 return;
             }
 
@@ -97,12 +97,11 @@ namespace AxOS.Hardware
                     driver.SetPixel((uint)dx, (uint)dy, unchecked((uint)data[idx]));
                 }
             }
-            driver.Update(0U, 0U, (uint)screenW, (uint)screenH);
         }
 
         public static void Display(
             SVGAIICanvas aThis,
-            [FieldAccess(Name = "Cosmos.HAL.Drivers.PCI.Video.VMWareSVGAII Cosmos.System.Graphics.SVGAIICanvas._xSVGADriver")]
+            [FieldAccess(Name = "Cosmos.HAL.Drivers.Video.SVGAII.VMWareSVGAII Cosmos.System.Graphics.SVGAIICanvas.driver")]
             ref VMWareSVGAII driver)
         {
             if (aThis == null || driver == null)
@@ -110,8 +109,8 @@ namespace AxOS.Hardware
                 return;
             }
 
-            int screenW = aThis.Mode.Columns;
-            int screenH = aThis.Mode.Rows;
+            int screenW = (int)aThis.Mode.Width;
+            int screenH = (int)aThis.Mode.Height;
             if (screenW <= 0 || screenH <= 0)
             {
                 return;

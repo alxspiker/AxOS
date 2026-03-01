@@ -9,13 +9,13 @@ using AxOS.Hardware;
 using AxOS.Storage;
 using AxOS.Diagnostics;
 using System.Text;
-using Cosmos.Core.IOGroup;
+using Cosmos.Core;
 
 namespace AxOS.Hardware
 {
     public sealed class PeripheralNerve
     {
-        private readonly COM _com1;
+        private const ushort Com1Base = 0x3F8;
         private readonly StringBuilder _serialLineBuffer;
         private bool _isReady;
 
@@ -23,7 +23,6 @@ namespace AxOS.Hardware
 
         public PeripheralNerve()
         {
-            _com1 = new COM(1);
             _serialLineBuffer = new StringBuilder(256);
         }
 
@@ -31,13 +30,13 @@ namespace AxOS.Hardware
         {
             try
             {
-                _com1.InterruptEnable.Byte = 0x00;
-                _com1.LineControl.Byte = 0x80;
-                _com1.Data.Byte = 0x01;
-                _com1.InterruptEnable.Byte = 0x00;
-                _com1.LineControl.Byte = 0x03;
-                _com1.FIFOControl.Byte = 0xC7;
-                _com1.ModemControl.Byte = 0x0B;
+                IOPort.Write8((ushort)(Com1Base + 1), 0x00);
+                IOPort.Write8((ushort)(Com1Base + 3), 0x80);
+                IOPort.Write8(Com1Base, 0x01);
+                IOPort.Write8((ushort)(Com1Base + 1), 0x00);
+                IOPort.Write8((ushort)(Com1Base + 3), 0x03);
+                IOPort.Write8((ushort)(Com1Base + 2), 0xC7);
+                IOPort.Write8((ushort)(Com1Base + 4), 0x0B);
                 _isReady = true;
             }
             catch
@@ -56,7 +55,7 @@ namespace AxOS.Hardware
 
             while (CanRead())
             {
-                byte raw = _com1.Data.Byte;
+                byte raw = IOPort.Read8(Com1Base);
                 char c = (char)raw;
 
                 if (c == '\r' || c == '\n')
@@ -94,12 +93,12 @@ namespace AxOS.Hardware
 
         private bool CanRead()
         {
-            return (_com1.LineStatus.Byte & 0x01) != 0;
+            return (IOPort.Read8((ushort)(Com1Base + 5)) & 0x01) != 0;
         }
 
         private bool CanWrite()
         {
-            return (_com1.LineStatus.Byte & 0x20) != 0;
+            return (IOPort.Read8((ushort)(Com1Base + 5)) & 0x20) != 0;
         }
 
         public void Write(string text)
@@ -137,7 +136,7 @@ namespace AxOS.Hardware
             {
             }
 
-            _com1.Data.Byte = (byte)c;
+            IOPort.Write8(Com1Base, (byte)c);
         }
     }
 }

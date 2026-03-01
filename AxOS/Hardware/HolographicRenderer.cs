@@ -174,7 +174,7 @@ namespace AxOS.Hardware
                     reqDepth = BitsToColorDepth(requestedDepthBits);
                 }
 
-                Mode requestedMode = new Mode(reqW, reqH, reqDepth);
+                Mode requestedMode = new Mode((uint)reqW, (uint)reqH, reqDepth);
                 try
                 {
                     if (forceVga8)
@@ -212,13 +212,13 @@ namespace AxOS.Hardware
                 }
 
                 Mode mode = canvas.Mode;
-                if (mode.Columns <= 0 || mode.Rows <= 0)
+                if (mode.Width <= 0 || mode.Height <= 0)
                 {
                     error = "graphics_mode_invalid";
                     return false;
                 }
-                screenWidth = mode.Columns;
-                screenHeight = mode.Rows;
+                screenWidth = (int)mode.Width;
+                screenHeight = (int)mode.Height;
                 if (logicalWidth > screenWidth)
                 {
                     logicalWidth = screenWidth;
@@ -250,13 +250,12 @@ namespace AxOS.Hardware
                     sceneTensor = BuildSceneTensor(logicalWidth, logicalHeight, coordinates, palette, out encodedPoints);
                     frameSceneScratch = sceneTensor.Copy();
                 }
-                Pen framePen = new Pen(Color.Black, 1);
                 Bitmap svgaMouseFrame = null;
                 int[] svgaMousePixels = null;
                 if (forceSvga && mouseOnly)
                 {
                     svgaMouseFrame = new Bitmap((uint)screenWidth, (uint)screenHeight, ColorDepth.ColorDepth32);
-                    svgaMousePixels = svgaMouseFrame.rawData;
+                    svgaMousePixels = svgaMouseFrame.RawData;
                 }
 
                 int targetFrames = Math.Max(1, seconds * fps);
@@ -300,7 +299,6 @@ namespace AxOS.Hardware
                             {
                                 RenderMouseFrame(
                                     canvas,
-                                    framePen,
                                     screenWidth,
                                     screenHeight,
                                     phase,
@@ -325,7 +323,6 @@ namespace AxOS.Hardware
                                 screenHeight,
                                 phase,
                                 canvas,
-                                framePen,
                                 debugOverlay,
                                 currentDebug,
                                 out frameAvgSimilarity,
@@ -340,7 +337,7 @@ namespace AxOS.Hardware
                             }
                             else
                             {
-                                DrawCenteredBlueSquare(canvas, framePen, screenWidth, screenHeight);
+                                DrawCenteredBlueSquare(canvas, screenWidth, screenHeight);
                             }
                         }
 
@@ -355,7 +352,7 @@ namespace AxOS.Hardware
                                 }
                                 else
                                 {
-                                    DrawMouseOverlay(canvas, framePen, screenWidth, screenHeight, mouseX, mouseY, mouseState);
+                                    DrawMouseOverlay(canvas, screenWidth, screenHeight, mouseX, mouseY, mouseState);
                                 }
                             }
                         }
@@ -672,7 +669,6 @@ namespace AxOS.Hardware
             int screenHeight,
             int phase,
             Canvas canvas,
-            Pen pen,
             bool debugOverlay,
             FrameDebugStats debugStats,
             out double averageBestSimilarity,
@@ -748,7 +744,7 @@ namespace AxOS.Hardware
                         output = ScaleColor(palette[bestPalette].Color, intensity);
                     }
 
-                    DrawBlock(canvas, pen, x0, y0, x1, y1, output, screenWidth, screenHeight);
+                    DrawBlock(canvas, x0, y0, x1, y1, output, screenWidth, screenHeight);
 
                     if (debugStats != null)
                     {
@@ -780,14 +776,14 @@ namespace AxOS.Hardware
 
             if (debugOverlay)
             {
-                DrawDebugOverlay(canvas, pen, screenWidth, screenHeight, debugStats);
+                DrawDebugOverlay(canvas, screenWidth, screenHeight, debugStats);
             }
 
             averageBestSimilarity = sampleCount > 0 ? sumBest / sampleCount : 0.0;
             peakBestSimilarity = maxBest;
         }
 
-        private static void DrawBlock(Canvas canvas, Pen pen, int x0, int y0, int x1, int y1, Color color, int screenWidth, int screenHeight)
+        private static void DrawBlock(Canvas canvas, int x0, int y0, int x1, int y1, Color color, int screenWidth, int screenHeight)
         {
             if (screenWidth <= 0 || screenHeight <= 0)
             {
@@ -803,16 +799,14 @@ namespace AxOS.Hardware
                 return;
             }
 
-            pen.Color = color;
             for (int py = sy0; py <= sy1; py++)
             {
-                canvas.DrawLine(pen, sx0, py, sx1, py);
+                canvas.DrawLine(color, sx0, py, sx1, py);
             }
         }
 
         private static void RenderMouseFrame(
             Canvas canvas,
-            Pen pen,
             int screenWidth,
             int screenHeight,
             int phase,
@@ -854,12 +848,12 @@ namespace AxOS.Hardware
 
             if (patternOverlay)
             {
-                DrawCalibrationPattern(canvas, pen, screenWidth, screenHeight, phase);
+                DrawCalibrationPattern(canvas, screenWidth, screenHeight, phase);
             }
 
             if (debugOverlay)
             {
-                DrawDebugOverlay(canvas, pen, screenWidth, screenHeight, debugStats);
+                DrawDebugOverlay(canvas, screenWidth, screenHeight, debugStats);
             }
 
             averageBestSimilarity = 0.0;
@@ -915,7 +909,7 @@ namespace AxOS.Hardware
             peakBestSimilarity = 0.0;
         }
 
-        private static void DrawDebugOverlay(Canvas canvas, Pen pen, int screenWidth, int screenHeight, FrameDebugStats stats)
+        private static void DrawDebugOverlay(Canvas canvas, int screenWidth, int screenHeight, FrameDebugStats stats)
         {
             if (screenWidth <= 1 || screenHeight <= 1)
             {
@@ -928,26 +922,21 @@ namespace AxOS.Hardware
             int y50 = maxY / 2;
             int y75 = (maxY * 3) / 4;
 
-            pen.Color = Color.White;
-            canvas.DrawLine(pen, 0, 0, maxX, 0);
-            canvas.DrawLine(pen, 0, maxY, maxX, maxY);
-            canvas.DrawLine(pen, 0, 0, 0, maxY);
-            canvas.DrawLine(pen, maxX, 0, maxX, maxY);
+            canvas.DrawLine(Color.White, 0, 0, maxX, 0);
+            canvas.DrawLine(Color.White, 0, maxY, maxX, maxY);
+            canvas.DrawLine(Color.White, 0, 0, 0, maxY);
+            canvas.DrawLine(Color.White, maxX, 0, maxX, maxY);
 
-            pen.Color = Color.FromArgb(255, 64, 64);
-            canvas.DrawLine(pen, 0, y25, maxX, y25);
-            pen.Color = Color.FromArgb(64, 255, 64);
-            canvas.DrawLine(pen, 0, y50, maxX, y50);
-            pen.Color = Color.FromArgb(64, 64, 255);
-            canvas.DrawLine(pen, 0, y75, maxX, y75);
+            canvas.DrawLine(Color.FromArgb(255, 64, 64), 0, y25, maxX, y25);
+            canvas.DrawLine(Color.FromArgb(64, 255, 64), 0, y50, maxX, y50);
+            canvas.DrawLine(Color.FromArgb(64, 64, 255), 0, y75, maxX, y75);
 
             if (stats != null && stats.NonBlackBlocks > 0)
             {
                 int yMin = Clamp(stats.NonBlackMinY, 0, maxY);
                 int yMax = Clamp(stats.NonBlackMaxY, 0, maxY);
-                pen.Color = Color.Yellow;
-                canvas.DrawLine(pen, 0, yMin, maxX, yMin);
-                canvas.DrawLine(pen, 0, yMax, maxX, yMax);
+                canvas.DrawLine(Color.Yellow, 0, yMin, maxX, yMin);
+                canvas.DrawLine(Color.Yellow, 0, yMax, maxX, yMax);
             }
         }
 
@@ -984,9 +973,9 @@ namespace AxOS.Hardware
             }
         }
 
-        private static void DrawCalibrationPattern(Canvas canvas, Pen pen, int screenWidth, int screenHeight, int phase)
+        private static void DrawCalibrationPattern(Canvas canvas, int screenWidth, int screenHeight, int phase)
         {
-            if (canvas == null || pen == null || screenWidth <= 1 || screenHeight <= 1)
+            if (canvas == null || screenWidth <= 1 || screenHeight <= 1)
             {
                 return;
             }
@@ -1014,32 +1003,28 @@ namespace AxOS.Hardware
                         c = checker ? Color.FromArgb(64, 255, 64) : Color.FromArgb(255, 255, 64);
                     }
 
-                    pen.Color = c;
-                    canvas.DrawPoint(pen, x, y);
+                    canvas.DrawPoint(c, x, y);
                 }
             }
 
-            pen.Color = Color.White;
             for (int x = 0; x < screenWidth; x += 2)
             {
-                canvas.DrawPoint(pen, x, halfY);
+                canvas.DrawPoint(Color.White, x, halfY);
             }
             for (int y = 0; y < screenHeight; y += 2)
             {
-                canvas.DrawPoint(pen, halfX, y);
+                canvas.DrawPoint(Color.White, halfX, y);
             }
 
             int sweepY = phase % screenHeight;
             int sweepX = (phase * 3) % screenWidth;
-            pen.Color = Color.Magenta;
             for (int x = 0; x < screenWidth; x += 2)
             {
-                canvas.DrawPoint(pen, x, sweepY);
+                canvas.DrawPoint(Color.Magenta, x, sweepY);
             }
-            pen.Color = Color.Cyan;
             for (int y = 0; y < screenHeight; y += 2)
             {
-                canvas.DrawPoint(pen, sweepX, y);
+                canvas.DrawPoint(Color.Cyan, sweepX, y);
             }
         }
 
@@ -1179,9 +1164,9 @@ namespace AxOS.Hardware
             stats.Samples++;
         }
 
-        private static void DrawMouseOverlay(Canvas canvas, Pen pen, int screenWidth, int screenHeight, int mouseX, int mouseY, Sys.MouseState mouseState)
+        private static void DrawMouseOverlay(Canvas canvas, int screenWidth, int screenHeight, int mouseX, int mouseY, Sys.MouseState mouseState)
         {
-            if (canvas == null || pen == null || screenWidth <= 1 || screenHeight <= 1)
+            if (canvas == null || screenWidth <= 1 || screenHeight <= 1)
             {
                 return;
             }
@@ -1213,24 +1198,23 @@ namespace AxOS.Hardware
             int vy0 = Clamp(y - vLen, 0, maxY);
             int vy1 = Clamp(y + vLen, 0, maxY);
 
-            pen.Color = crossColor;
-            canvas.DrawLine(pen, hx0, y, hx1, y);
-            canvas.DrawLine(pen, x, vy0, x, vy1);
+            canvas.DrawLine(crossColor, hx0, y, hx1, y);
+            canvas.DrawLine(crossColor, x, vy0, x, vy1);
 
             int b = 2;
             int bx0 = Clamp(x - b, 0, maxX);
             int bx1 = Clamp(x + b, 0, maxX);
             int by0 = Clamp(y - b, 0, maxY);
             int by1 = Clamp(y + b, 0, maxY);
-            canvas.DrawLine(pen, bx0, by0, bx1, by0);
-            canvas.DrawLine(pen, bx1, by0, bx1, by1);
-            canvas.DrawLine(pen, bx1, by1, bx0, by1);
-            canvas.DrawLine(pen, bx0, by1, bx0, by0);
+            canvas.DrawLine(crossColor, bx0, by0, bx1, by0);
+            canvas.DrawLine(crossColor, bx1, by0, bx1, by1);
+            canvas.DrawLine(crossColor, bx1, by1, bx0, by1);
+            canvas.DrawLine(crossColor, bx0, by1, bx0, by0);
         }
 
-        private static void DrawCenteredBlueSquare(Canvas canvas, Pen pen, int screenWidth, int screenHeight)
+        private static void DrawCenteredBlueSquare(Canvas canvas, int screenWidth, int screenHeight)
         {
-            if (canvas == null || pen == null || screenWidth <= 2 || screenHeight <= 2)
+            if (canvas == null || screenWidth <= 2 || screenHeight <= 2)
             {
                 return;
             }
@@ -1241,17 +1225,15 @@ namespace AxOS.Hardware
             int x1 = Clamp(x0 + side - 1, 0, screenWidth - 1);
             int y1 = Clamp(y0 + side - 1, 0, screenHeight - 1);
 
-            pen.Color = Color.Blue;
             for (int y = y0; y <= y1; y++)
             {
-                canvas.DrawLine(pen, x0, y, x1, y);
+                canvas.DrawLine(Color.Blue, x0, y, x1, y);
             }
 
-            pen.Color = Color.White;
-            canvas.DrawLine(pen, x0, y0, x1, y0);
-            canvas.DrawLine(pen, x1, y0, x1, y1);
-            canvas.DrawLine(pen, x1, y1, x0, y1);
-            canvas.DrawLine(pen, x0, y1, x0, y0);
+            canvas.DrawLine(Color.White, x0, y0, x1, y0);
+            canvas.DrawLine(Color.White, x1, y0, x1, y1);
+            canvas.DrawLine(Color.White, x1, y1, x0, y1);
+            canvas.DrawLine(Color.White, x0, y1, x0, y0);
 
             // Secondary top-left marker to detect "top strip only" scanout faults.
             int diagSide = Math.Max(12, side / 3);
@@ -1259,16 +1241,14 @@ namespace AxOS.Hardware
             int dy0 = 8;
             int dx1 = Clamp(dx0 + diagSide - 1, 0, screenWidth - 1);
             int dy1 = Clamp(dy0 + diagSide - 1, 0, screenHeight - 1);
-            pen.Color = Color.Blue;
             for (int y = dy0; y <= dy1; y++)
             {
-                canvas.DrawLine(pen, dx0, y, dx1, y);
+                canvas.DrawLine(Color.Blue, dx0, y, dx1, y);
             }
-            pen.Color = Color.White;
-            canvas.DrawLine(pen, dx0, dy0, dx1, dy0);
-            canvas.DrawLine(pen, dx1, dy0, dx1, dy1);
-            canvas.DrawLine(pen, dx1, dy1, dx0, dy1);
-            canvas.DrawLine(pen, dx0, dy1, dx0, dy0);
+            canvas.DrawLine(Color.White, dx0, dy0, dx1, dy0);
+            canvas.DrawLine(Color.White, dx1, dy0, dx1, dy1);
+            canvas.DrawLine(Color.White, dx1, dy1, dx0, dy1);
+            canvas.DrawLine(Color.White, dx0, dy1, dx0, dy0);
         }
 
         private static void DrawMouseOverlayPixels(int[] pixels, int screenWidth, int screenHeight, int mouseX, int mouseY, Sys.MouseState mouseState)

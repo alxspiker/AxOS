@@ -23,3 +23,9 @@ axos-data.img
 # OS noise
 .DS_Store
 Thumbs.db
+
+# Local bootstrap workspaces
+cosmos_pinned_20240311/
+tmp_aura_repo/
+tmp_reflect*/
+build_diag.txt

@@ -141,7 +141,7 @@ namespace AxOS.Core
             if (Data == null) throw new InvalidOperationException("Tensor data cannot be null.");
             if (Shape.TotalElements != Data.Length)
             {
-                throw new InvalidOperationException($"Tensor invariant violation: Shape.Total({Shape.TotalElements}) != Data.Length({Data.Length})");
+                throw new InvalidOperationException("Tensor invariant violation: Shape.Total(" + Shape.TotalElements + ") != Data.Length(" + Data.Length + ")");
             }
         }
 
@@ -149,4 +149,3 @@ namespace AxOS.Core
         public static Tensor Ones(Shape shape) => new Tensor(shape, 1.0f);
     }
 }
-
