@@ -392,40 +392,47 @@ namespace AxOS.Hardware
             int drawH = rows * cellH;
             int offX = Math.Max(0, (screenWidth - drawW) / 2);
             int offY = Math.Max(0, (screenHeight - drawH) / 2);
-
-            float min = tensor.Data[0];
-            float max = tensor.Data[0];
-            for (int i = 1; i < tensor.Data.Length; i++)
-            {
-                float value = tensor.Data[i];
-                if (value < min)
-                {
-                    min = value;
-                }
-                if (value > max)
-                {
-                    max = value;
-                }
-            }
-
-            float range = max - min;
-            if (range <= 0.000001f)
-            {
-                range = 1.0f;
-            }
-
             int cells = cols * rows;
+            float[] field = new float[cells];
+            for (int i = 0; i < tensor.Total; i++)
+            {
+                float energy = tensor.Data[i];
+                if (energy < 0.0f)
+                {
+                    energy = -energy;
+                }
+                if (energy <= 0.000001f)
+                {
+                    continue;
+                }
+
+                uint h = (uint)(i * 2654435761u);
+                int c0 = (int)(h % (uint)cells);
+                int c1 = (int)((h >> 8) % (uint)cells);
+                int c2 = (int)((h >> 16) % (uint)cells);
+                field[c0] += energy;
+                field[c1] += energy * 0.60f;
+                field[c2] += energy * 0.35f;
+            }
+
+            float maxField = 0.0f;
+            for (int i = 0; i < cells; i++)
+            {
+                if (field[i] > maxField)
+                {
+                    maxField = field[i];
+                }
+            }
+            if (maxField <= 0.000001f)
+            {
+                maxField = 1.0f;
+            }
+
             int strongestCell = 0;
             float strongestNorm = -1.0f;
             for (int i = 0; i < cells; i++)
             {
-                int tensorIndex = (int)(((long)i * tensor.Total) / cells);
-                if (tensorIndex >= tensor.Total)
-                {
-                    tensorIndex = tensor.Total - 1;
-                }
-
-                float normalized = (tensor.Data[tensorIndex] - min) / range;
+                float normalized = field[i] / maxField;
                 if (normalized > strongestNorm)
                 {
                     strongestNorm = normalized;
