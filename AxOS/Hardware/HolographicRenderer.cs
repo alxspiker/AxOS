@@ -283,18 +283,14 @@ namespace AxOS.Hardware
                 return false;
             }
 
-            var snapshot = manifold.SnapshotWorkingMemory(1);
-            if (snapshot == null || snapshot.Count == 0)
+            if (!TryGetTopManifoldTensor(manifold, out Tensor manifoldTensor))
             {
-                error = "manifold_empty";
-                return false;
-            }
-
-            Tensor manifoldTensor = snapshot[0].Value == null ? null : snapshot[0].Value.Flatten();
-            if (manifoldTensor == null || manifoldTensor.IsEmpty)
-            {
-                error = "manifold_tensor_empty";
-                return false;
+                AdvanceManifoldFrame(manifold, 0);
+                if (!TryGetTopManifoldTensor(manifold, out manifoldTensor))
+                {
+                    error = "manifold_empty";
+                    return false;
+                }
             }
 
             Canvas canvas = null;
@@ -302,6 +298,7 @@ namespace AxOS.Hardware
             try
             {
                 const int seconds = 20;
+                const int targetFps = 8;
                 const string canvasBackend = "VGACanvas";
                 const int colorDepthBits = 8;
                 canvas = new VGACanvas(new Mode(320, 200, ColorDepth.ColorDepth8));
@@ -313,20 +310,37 @@ namespace AxOS.Hardware
 
                 int screenWidth = (int)canvas.Mode.Width;
                 int screenHeight = (int)canvas.Mode.Height;
-
-                DrawManifoldHeatmap(canvas, manifoldTensor, screenWidth, screenHeight);
-
-                bool patternProbeCaptured = TrySamplePatternPixels(
-                    canvas,
-                    screenWidth,
-                    screenHeight,
-                    out int patternTopArgb,
-                    out int patternMidArgb,
-                    out int patternBottomArgb);
-
+                int targetFrames = Math.Max(1, seconds * targetFps);
+                int renderedFrames = 0;
                 bool exitedByKey = false;
-                while ((DateTime.UtcNow - startedUtc).TotalSeconds < seconds)
+                bool patternProbeCaptured = false;
+                int patternTopArgb = 0;
+                int patternMidArgb = 0;
+                int patternBottomArgb = 0;
+                DateTime nextFrameDue = DateTime.UtcNow;
+
+                while (renderedFrames < targetFrames)
                 {
+                    AdvanceManifoldFrame(manifold, renderedFrames + 1);
+                    if (TryGetTopManifoldTensor(manifold, out Tensor liveTensor))
+                    {
+                        manifoldTensor = liveTensor;
+                    }
+
+                    DrawManifoldHeatmap(canvas, manifoldTensor, screenWidth, screenHeight);
+                    if (!patternProbeCaptured)
+                    {
+                        patternProbeCaptured = TrySamplePatternPixels(
+                            canvas,
+                            screenWidth,
+                            screenHeight,
+                            out patternTopArgb,
+                            out patternMidArgb,
+                            out patternBottomArgb);
+                    }
+
+                    renderedFrames++;
+
                     if (Sys.KeyboardManager.KeyAvailable && Sys.KeyboardManager.TryReadKey(out Sys.KeyEvent keyEvent))
                     {
                         char keyChar = keyEvent.KeyChar;
@@ -336,18 +350,41 @@ namespace AxOS.Hardware
                             break;
                         }
                     }
+
+                    if ((DateTime.UtcNow - startedUtc).TotalSeconds >= seconds)
+                    {
+                        break;
+                    }
+
+                    nextFrameDue = nextFrameDue.AddMilliseconds(1000.0 / targetFps);
+                    while (DateTime.UtcNow < nextFrameDue)
+                    {
+                        if (Sys.KeyboardManager.KeyAvailable && Sys.KeyboardManager.TryReadKey(out Sys.KeyEvent waitKeyEvent))
+                        {
+                            char keyChar = waitKeyEvent.KeyChar;
+                            if (keyChar == (char)27 || keyChar == '\r' || keyChar == '\n' || keyChar == 'q' || keyChar == 'Q')
+                            {
+                                exitedByKey = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (exitedByKey)
+                    {
+                        break;
+                    }
                 }
 
                 TimeSpan elapsed = DateTime.UtcNow - startedUtc;
-                report.RenderedFrames = 1;
-                report.TargetFrames = 1;
+                report.RenderedFrames = renderedFrames;
+                report.TargetFrames = targetFrames;
                 report.EncodedPoints = manifoldTensor.Total;
                 report.Dim = manifoldTensor.Total;
                 report.ScreenWidth = screenWidth;
                 report.ScreenHeight = screenHeight;
                 report.LogicalWidth = 40;
                 report.LogicalHeight = 25;
-                report.TargetFps = 1;
+                report.TargetFps = targetFps;
                 report.DurationSeconds = seconds;
                 report.Threshold = 0.0;
                 report.AvgBestSimilarity = 0.0;
@@ -377,6 +414,56 @@ namespace AxOS.Hardware
                 catch
                 {
                 }
+            }
+        }
+
+        private static bool TryGetTopManifoldTensor(ProgramManifold manifold, out Tensor tensor)
+        {
+            tensor = null;
+            var snapshot = manifold.SnapshotWorkingMemory(1);
+            if (snapshot == null || snapshot.Count == 0)
+            {
+                return false;
+            }
+
+            Tensor top = snapshot[0].Value == null ? null : snapshot[0].Value.Flatten();
+            if (top == null || top.IsEmpty)
+            {
+                return false;
+            }
+
+            tensor = top;
+            return true;
+        }
+
+        private static void AdvanceManifoldFrame(ProgramManifold manifold, int frameIndex)
+        {
+            manifold.Enqueue(new DataStream
+            {
+                DatasetType = "semantic_logic",
+                DatasetId = "live_" + frameIndex,
+                Payload = BuildLivePayload(frameIndex)
+            });
+            manifold.RunBatch(1);
+        }
+
+        private static string BuildLivePayload(int frameIndex)
+        {
+            int phase = frameIndex % 12;
+            switch (phase)
+            {
+                case 0: return "ALPHA BETA GAMMA ALPHA";
+                case 1: return "BETA ALPHA GAMMA BETA";
+                case 2: return "GAMMA BETA ALPHA GAMMA";
+                case 3: return "ALPHA GAMMA BETA ALPHA";
+                case 4: return "GAMMA ALPHA BETA ALPHA";
+                case 5: return "BETA GAMMA ALPHA BETA";
+                case 6: return "ALPHA ALPHA BETA GAMMA";
+                case 7: return "BETA BETA GAMMA ALPHA";
+                case 8: return "GAMMA GAMMA ALPHA BETA";
+                case 9: return "ALPHA BETA ALPHA GAMMA";
+                case 10: return "BETA GAMMA BETA ALPHA";
+                default: return "GAMMA ALPHA GAMMA BETA";
             }
         }
 
