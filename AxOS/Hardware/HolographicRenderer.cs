@@ -209,6 +209,9 @@ namespace AxOS.Hardware
                     // Explicit SVGA mode still faults on Display() in this stack.
                     useDisplayFlip = false;
                 }
+                bool useVgaDirectPath =
+                    canvasBackend.IndexOf("VGA", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                    canvasBackend.IndexOf("SVGA", StringComparison.OrdinalIgnoreCase) < 0;
 
                 Mode mode = canvas.Mode;
                 if (mode.Width <= 0 || mode.Height <= 0)
@@ -251,7 +254,8 @@ namespace AxOS.Hardware
                 }
                 Bitmap mouseFrame = null;
                 int[] mousePixels = null;
-                if (mouseOnly)
+                bool usePixelBufferPath = mouseOnly && !useVgaDirectPath;
+                if (usePixelBufferPath)
                 {
                     mouseFrame = new Bitmap((uint)screenWidth, (uint)screenHeight, ColorDepth.ColorDepth32);
                     mousePixels = mouseFrame.RawData;
@@ -280,7 +284,7 @@ namespace AxOS.Hardware
                         bool renderedToPixelBuffer = false;
                         if (mouseOnly)
                         {
-                            if (mousePixels != null)
+                            if (usePixelBufferPath && mousePixels != null)
                             {
                                 RenderMouseFramePixels(
                                     mousePixels,
@@ -1227,11 +1231,7 @@ namespace AxOS.Hardware
             int y0 = Clamp((screenHeight - side) / 2, 0, screenHeight - 1);
             int x1 = Clamp(x0 + side - 1, 0, screenWidth - 1);
             int y1 = Clamp(y0 + side - 1, 0, screenHeight - 1);
-
-            for (int y = y0; y <= y1; y++)
-            {
-                canvas.DrawLine(Color.Blue, x0, y, x1, y);
-            }
+            canvas.DrawFilledRectangle(Color.Blue, x0, y0, (x1 - x0) + 1, (y1 - y0) + 1);
 
             canvas.DrawLine(Color.White, x0, y0, x1, y0);
             canvas.DrawLine(Color.White, x1, y0, x1, y1);
@@ -1244,10 +1244,7 @@ namespace AxOS.Hardware
             int dy0 = 8;
             int dx1 = Clamp(dx0 + diagSide - 1, 0, screenWidth - 1);
             int dy1 = Clamp(dy0 + diagSide - 1, 0, screenHeight - 1);
-            for (int y = dy0; y <= dy1; y++)
-            {
-                canvas.DrawLine(Color.Blue, dx0, y, dx1, y);
-            }
+            canvas.DrawFilledRectangle(Color.Blue, dx0, dy0, (dx1 - dx0) + 1, (dy1 - dy0) + 1);
             canvas.DrawLine(Color.White, dx0, dy0, dx1, dy0);
             canvas.DrawLine(Color.White, dx1, dy0, dx1, dy1);
             canvas.DrawLine(Color.White, dx1, dy1, dx0, dy1);
