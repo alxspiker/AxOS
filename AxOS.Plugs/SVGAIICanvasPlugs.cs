@@ -64,7 +64,6 @@ namespace AxOS.Hardware
             }
 
             int frontBase = (int)driver.FrameOffset;
-            int backBase = (int)driver.FrameSize;
             int bytesPerLine = screenW * 4;
             int rowBytes = copyW * 4;
             int vramSize = (int)driver.videoMemory.Size;
@@ -73,16 +72,16 @@ namespace AxOS.Hardware
             {
                 int srcIndex = (sourceY + row) * width + sourceX;
                 int frontDst = frontBase + ((startY + row) * bytesPerLine) + (startX * 4);
-                int backDst = backBase + ((startY + row) * bytesPerLine) + (startX * 4);
-
                 if (frontDst >= 0 && frontDst + rowBytes <= vramSize)
                 {
                     driver.videoMemory.Copy(frontDst, data, srcIndex, copyW);
                 }
-                if (backDst >= 0 && backDst + rowBytes <= vramSize)
-                {
-                    driver.videoMemory.Copy(backDst, data, srcIndex, copyW);
-                }
+            }
+
+            // Push the updated region once after the full blit to reduce visible progressive scan-in.
+            if (startX >= 0 && startY >= 0 && copyW > 0 && copyH > 0)
+            {
+                driver.Update((uint)startX, (uint)startY, (uint)copyW, (uint)copyH);
             }
         }
 

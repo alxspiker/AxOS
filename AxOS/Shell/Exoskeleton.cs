@@ -1014,7 +1014,7 @@ namespace AxOS
         private void RunStartupTestSequence()
         {
             WriteBootAndSerialLine("startup: running holo demo");
-            HandleHolo(new List<string> { "holo", "demo", "20", "640", "480", "24", "18", "48", "0.002", "8", "mouse", "mouseonly", "bluesquare", "d32" });
+            HandleHolo(new List<string> { "holo", "demo", "20", "640", "480", "24", "18", "48", "0.002", "8", "mouse", "mouseonly", "bluesquare", "vga8" });
 
             WriteBootAndSerialLine("startup: tests complete, shutting down");
             ShutdownSystem();
