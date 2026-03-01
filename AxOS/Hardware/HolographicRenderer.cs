@@ -318,6 +318,18 @@ namespace AxOS.Hardware
                 int patternMidArgb = 0;
                 int patternBottomArgb = 0;
                 DateTime nextFrameDue = DateTime.UtcNow;
+                const int cols = 40;
+                const int rows = 25;
+                int cells = cols * rows;
+                float[] projectedField = new float[cells];
+                float[] smoothedField = new float[cells];
+                float[] lastDrawnField = new float[cells];
+                for (int i = 0; i < lastDrawnField.Length; i++)
+                {
+                    lastDrawnField[i] = -1.0f;
+                }
+                int previousStrongestCell = -1;
+                bool firstFrame = true;
 
                 while (renderedFrames < targetFrames)
                 {
@@ -327,7 +339,22 @@ namespace AxOS.Hardware
                         manifoldTensor = liveTensor;
                     }
 
-                    DrawManifoldHeatmap(canvas, manifoldTensor, screenWidth, screenHeight);
+                    BuildManifoldFieldNormalized(manifoldTensor, projectedField);
+                    for (int i = 0; i < cells; i++)
+                    {
+                        // Temporal smoothing for softer transitions.
+                        smoothedField[i] = (smoothedField[i] * 0.78f) + (projectedField[i] * 0.22f);
+                    }
+
+                    DrawManifoldHeatmap(
+                        canvas,
+                        smoothedField,
+                        lastDrawnField,
+                        screenWidth,
+                        screenHeight,
+                        ref previousStrongestCell,
+                        firstFrame);
+                    firstFrame = false;
                     if (!patternProbeCaptured)
                     {
                         patternProbeCaptured = TrySamplePatternPixels(
@@ -467,20 +494,19 @@ namespace AxOS.Hardware
             }
         }
 
-        private static void DrawManifoldHeatmap(Canvas canvas, Tensor tensor, int screenWidth, int screenHeight)
+        private static void BuildManifoldFieldNormalized(Tensor tensor, float[] field)
         {
-            canvas.Clear(Color.Black);
+            if (tensor == null || tensor.IsEmpty || field == null || field.Length == 0)
+            {
+                return;
+            }
 
-            const int cols = 40;
-            const int rows = 25;
-            int cellW = Math.Max(1, screenWidth / cols);
-            int cellH = Math.Max(1, screenHeight / rows);
-            int drawW = cols * cellW;
-            int drawH = rows * cellH;
-            int offX = Math.Max(0, (screenWidth - drawW) / 2);
-            int offY = Math.Max(0, (screenHeight - drawH) / 2);
-            int cells = cols * rows;
-            float[] field = new float[cells];
+            for (int i = 0; i < field.Length; i++)
+            {
+                field[i] = 0.0f;
+            }
+
+            int cells = field.Length;
             for (int i = 0; i < tensor.Total; i++)
             {
                 float energy = tensor.Data[i];
@@ -515,27 +541,87 @@ namespace AxOS.Hardware
                 maxField = 1.0f;
             }
 
+            for (int i = 0; i < cells; i++)
+            {
+                float normalized = field[i] / maxField;
+                if (normalized < 0.0f)
+                {
+                    normalized = 0.0f;
+                }
+                if (normalized > 1.0f)
+                {
+                    normalized = 1.0f;
+                }
+                field[i] = normalized;
+            }
+        }
+
+        private static void DrawManifoldHeatmap(
+            Canvas canvas,
+            float[] normalizedField,
+            float[] lastDrawnField,
+            int screenWidth,
+            int screenHeight,
+            ref int previousStrongestCell,
+            bool fullRedraw)
+        {
+            if (canvas == null || normalizedField == null || lastDrawnField == null || normalizedField.Length != lastDrawnField.Length)
+            {
+                return;
+            }
+
+            const int cols = 40;
+            const int rows = 25;
+            int cellW = Math.Max(1, screenWidth / cols);
+            int cellH = Math.Max(1, screenHeight / rows);
+            int drawW = cols * cellW;
+            int drawH = rows * cellH;
+            int offX = Math.Max(0, (screenWidth - drawW) / 2);
+            int offY = Math.Max(0, (screenHeight - drawH) / 2);
+            int cells = cols * rows;
+            if (cells != normalizedField.Length)
+            {
+                return;
+            }
+
+            if (fullRedraw)
+            {
+                canvas.Clear(Color.Black);
+            }
+
             int strongestCell = 0;
             float strongestNorm = -1.0f;
             for (int i = 0; i < cells; i++)
             {
-                float normalized = field[i] / maxField;
+                float normalized = normalizedField[i];
                 if (normalized > strongestNorm)
                 {
                     strongestNorm = normalized;
                     strongestCell = i;
                 }
+            }
+
+            for (int i = 0; i < cells; i++)
+            {
+                bool valueChanged = Math.Abs(normalizedField[i] - lastDrawnField[i]) >= 0.010f;
+                bool highlightChanged = i == strongestCell || i == previousStrongestCell;
+                if (!fullRedraw && !valueChanged && !highlightChanged)
+                {
+                    continue;
+                }
 
                 int x = offX + ((i % cols) * cellW);
                 int y = offY + ((i / cols) * cellH);
-                Color c = ManifoldColor(normalized);
+                Color c = ManifoldColor(normalizedField[i]);
                 canvas.DrawFilledRectangle(c, x, y, cellW, cellH);
+                lastDrawnField[i] = normalizedField[i];
             }
 
             DrawRectangleOutlineFilled(canvas, offX, offY, offX + drawW - 1, offY + drawH - 1, Color.White);
             int sx = offX + ((strongestCell % cols) * cellW);
             int sy = offY + ((strongestCell / cols) * cellH);
             DrawRectangleOutlineFilled(canvas, sx, sy, sx + cellW - 1, sy + cellH - 1, Color.Yellow);
+            previousStrongestCell = strongestCell;
         }
 
         private static Color ManifoldColor(float normalized)
