@@ -63,7 +63,8 @@ namespace AxOS.Hardware
                 return;
             }
 
-            int frameBase = (int)driver.FrameOffset;
+            int frontBase = (int)driver.FrameOffset;
+            int backBase = (int)driver.FrameSize;
             int bytesPerLine = screenW * 4;
             int rowBytes = copyW * 4;
             int vramSize = (int)driver.videoMemory.Size;
@@ -71,13 +72,17 @@ namespace AxOS.Hardware
             for (int row = 0; row < copyH; row++)
             {
                 int srcIndex = (sourceY + row) * width + sourceX;
-                int dstByte = frameBase + ((startY + row) * bytesPerLine) + (startX * 4);
-                if (dstByte < 0 || dstByte + rowBytes > vramSize)
-                {
-                    continue;
-                }
+                int frontDst = frontBase + ((startY + row) * bytesPerLine) + (startX * 4);
+                int backDst = backBase + ((startY + row) * bytesPerLine) + (startX * 4);
 
-                driver.videoMemory.Copy(dstByte, data, srcIndex, copyW);
+                if (frontDst >= 0 && frontDst + rowBytes <= vramSize)
+                {
+                    driver.videoMemory.Copy(frontDst, data, srcIndex, copyW);
+                }
+                if (backDst >= 0 && backDst + rowBytes <= vramSize)
+                {
+                    driver.videoMemory.Copy(backDst, data, srcIndex, copyW);
+                }
             }
         }
 
