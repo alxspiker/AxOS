@@ -3,6 +3,8 @@
 // See LICENSE file in the project root for full license text.
 using System;
 using System.Drawing;
+using AxOS.Core;
+using AxOS.Kernel;
 using Cosmos.System.Graphics;
 using Sys = Cosmos.System;
 
@@ -268,6 +270,195 @@ namespace AxOS.Hardware
                 {
                 }
             }
+        }
+
+        public bool RunManifoldPreview(ProgramManifold manifold, out RenderReport report, out string error)
+        {
+            report = new RenderReport();
+            error = string.Empty;
+
+            if (manifold == null)
+            {
+                error = "missing_manifold";
+                return false;
+            }
+
+            var snapshot = manifold.SnapshotWorkingMemory(1);
+            if (snapshot == null || snapshot.Count == 0)
+            {
+                error = "manifold_empty";
+                return false;
+            }
+
+            Tensor manifoldTensor = snapshot[0].Value == null ? null : snapshot[0].Value.Flatten();
+            if (manifoldTensor == null || manifoldTensor.IsEmpty)
+            {
+                error = "manifold_tensor_empty";
+                return false;
+            }
+
+            Canvas canvas = null;
+            DateTime startedUtc = DateTime.UtcNow;
+            try
+            {
+                const int seconds = 20;
+                const string canvasBackend = "VGACanvas";
+                const int colorDepthBits = 8;
+                canvas = new VGACanvas(new Mode(320, 200, ColorDepth.ColorDepth8));
+                if (canvas == null || canvas.Mode.Width <= 0 || canvas.Mode.Height <= 0)
+                {
+                    error = "graphics_canvas_unavailable";
+                    return false;
+                }
+
+                int screenWidth = (int)canvas.Mode.Width;
+                int screenHeight = (int)canvas.Mode.Height;
+
+                DrawManifoldHeatmap(canvas, manifoldTensor, screenWidth, screenHeight);
+
+                bool patternProbeCaptured = TrySamplePatternPixels(
+                    canvas,
+                    screenWidth,
+                    screenHeight,
+                    out int patternTopArgb,
+                    out int patternMidArgb,
+                    out int patternBottomArgb);
+
+                bool exitedByKey = false;
+                while ((DateTime.UtcNow - startedUtc).TotalSeconds < seconds)
+                {
+                    if (Sys.KeyboardManager.KeyAvailable && Sys.KeyboardManager.TryReadKey(out Sys.KeyEvent keyEvent))
+                    {
+                        char keyChar = keyEvent.KeyChar;
+                        if (keyChar == (char)27 || keyChar == '\r' || keyChar == '\n' || keyChar == 'q' || keyChar == 'Q')
+                        {
+                            exitedByKey = true;
+                            break;
+                        }
+                    }
+                }
+
+                TimeSpan elapsed = DateTime.UtcNow - startedUtc;
+                report.RenderedFrames = 1;
+                report.TargetFrames = 1;
+                report.EncodedPoints = manifoldTensor.Total;
+                report.Dim = manifoldTensor.Total;
+                report.ScreenWidth = screenWidth;
+                report.ScreenHeight = screenHeight;
+                report.LogicalWidth = 40;
+                report.LogicalHeight = 25;
+                report.TargetFps = 1;
+                report.DurationSeconds = seconds;
+                report.Threshold = 0.0;
+                report.AvgBestSimilarity = 0.0;
+                report.PeakBestSimilarity = 0.0;
+                report.ElapsedMilliseconds = (long)elapsed.TotalMilliseconds;
+                report.ExitedByKey = exitedByKey;
+                report.ColorDepthBits = colorDepthBits;
+                report.CanvasBackend = canvasBackend;
+                report.DisplayFlipUsed = false;
+                report.PatternProbeValid = patternProbeCaptured;
+                report.PatternProbeTopArgb = patternTopArgb;
+                report.PatternProbeMidArgb = patternMidArgb;
+                report.PatternProbeBottomArgb = patternBottomArgb;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = "render_failed:" + ex.Message;
+                return false;
+            }
+            finally
+            {
+                try
+                {
+                    canvas?.Disable();
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private static void DrawManifoldHeatmap(Canvas canvas, Tensor tensor, int screenWidth, int screenHeight)
+        {
+            canvas.Clear(Color.Black);
+
+            const int cols = 40;
+            const int rows = 25;
+            int cellW = Math.Max(1, screenWidth / cols);
+            int cellH = Math.Max(1, screenHeight / rows);
+            int drawW = cols * cellW;
+            int drawH = rows * cellH;
+            int offX = Math.Max(0, (screenWidth - drawW) / 2);
+            int offY = Math.Max(0, (screenHeight - drawH) / 2);
+
+            float min = tensor.Data[0];
+            float max = tensor.Data[0];
+            for (int i = 1; i < tensor.Data.Length; i++)
+            {
+                float value = tensor.Data[i];
+                if (value < min)
+                {
+                    min = value;
+                }
+                if (value > max)
+                {
+                    max = value;
+                }
+            }
+
+            float range = max - min;
+            if (range <= 0.000001f)
+            {
+                range = 1.0f;
+            }
+
+            int cells = cols * rows;
+            int strongestCell = 0;
+            float strongestNorm = -1.0f;
+            for (int i = 0; i < cells; i++)
+            {
+                int tensorIndex = (int)(((long)i * tensor.Total) / cells);
+                if (tensorIndex >= tensor.Total)
+                {
+                    tensorIndex = tensor.Total - 1;
+                }
+
+                float normalized = (tensor.Data[tensorIndex] - min) / range;
+                if (normalized > strongestNorm)
+                {
+                    strongestNorm = normalized;
+                    strongestCell = i;
+                }
+
+                int x = offX + ((i % cols) * cellW);
+                int y = offY + ((i / cols) * cellH);
+                Color c = ManifoldColor(normalized);
+                canvas.DrawFilledRectangle(c, x, y, cellW, cellH);
+            }
+
+            DrawRectangleOutlineFilled(canvas, offX, offY, offX + drawW - 1, offY + drawH - 1, Color.White);
+            int sx = offX + ((strongestCell % cols) * cellW);
+            int sy = offY + ((strongestCell / cols) * cellH);
+            DrawRectangleOutlineFilled(canvas, sx, sy, sx + cellW - 1, sy + cellH - 1, Color.Yellow);
+        }
+
+        private static Color ManifoldColor(float normalized)
+        {
+            if (normalized < 0.0f)
+            {
+                normalized = 0.0f;
+            }
+            if (normalized > 1.0f)
+            {
+                normalized = 1.0f;
+            }
+
+            int b = 32 + (int)(223.0f * normalized);
+            int g = (int)(140.0f * normalized);
+            int r = (int)(40.0f * normalized);
+            return Color.FromArgb(r, g, b);
         }
 
         private static void RenderMouseFrame(Canvas canvas, bool skipClear, out double averageBestSimilarity, out double peakBestSimilarity)

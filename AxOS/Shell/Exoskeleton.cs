@@ -1013,8 +1013,8 @@ namespace AxOS
 
         private void RunStartupTestSequence()
         {
-            WriteBootAndSerialLine("startup: running holo demo");
-            HandleHolo(new List<string> { "holo", "demo" });
+            WriteBootAndSerialLine("startup: running holo manifold");
+            HandleHolo(new List<string> { "holo", "manifold" });
 
             WriteBootAndSerialLine("startup: tests complete, shutting down");
             ShutdownSystem();
@@ -1757,10 +1757,125 @@ namespace AxOS
                     break;
                 }
 
+                case "manifold":
+                {
+                    if (_activeCommandFromSerial)
+                    {
+                        WriteInteractiveLine("holo_failed: graphics_requires_local_console");
+                        return;
+                    }
+
+                    ProgramManifold manifold = ResolveManifoldForDisplay();
+                    if (manifold == null)
+                    {
+                        WriteInteractiveLine("holo_manifold_failed: manifold_unavailable");
+                        return;
+                    }
+
+                    WriteInteractiveLine("holo_manifold_start: name=" + manifold.Name + " (ESC/Enter/Q to exit)");
+                    if (!_holographicRenderer.RunManifoldPreview(manifold, out HolographicRenderer.RenderReport report, out string error))
+                    {
+                        WriteInteractiveLine("holo_manifold_failed: " + error);
+                        return;
+                    }
+
+                    WriteInteractiveLine(
+                        "holo_manifold_complete: points=" +
+                        report.EncodedPoints +
+                        ", elapsed_ms=" +
+                        report.ElapsedMilliseconds +
+                        ", mode=" +
+                        report.ScreenWidth +
+                        "x" +
+                        report.ScreenHeight +
+                        ", backend=" +
+                        report.CanvasBackend +
+                        ", exited_by_key=" +
+                        report.ExitedByKey);
+                    break;
+                }
+
                 default:
                     WriteInteractiveLine("Unknown holo command. Type 'holo help'.");
                     break;
             }
+        }
+
+        private ProgramManifold ResolveManifoldForDisplay()
+        {
+            if (_activeManifolds.Count > 0)
+            {
+                return _activeManifolds[_activeManifolds.Count - 1];
+            }
+
+            ProgramManifold manifold = CreateSemanticDisplayManifold();
+            if (manifold != null)
+            {
+                _activeManifolds.Add(manifold);
+            }
+            return manifold;
+        }
+
+        private ProgramManifold CreateSemanticDisplayManifold()
+        {
+            int dim = 1024;
+            Ruleset ruleset = new Ruleset();
+            ruleset.ConstraintMode = "semantic_logic";
+            ruleset.Heuristics = new HeuristicConfig
+            {
+                System1Base = 0.58f,
+                System1EntropyWeight = 0.08f,
+                System1SparsityWeight = 0.04f,
+                System1Min = 0.42f,
+                System1Max = 0.70f,
+                CriticBase = 0.28f,
+                CriticEntropyWeight = 0.05f,
+                CriticSkewnessWeight = 0.02f,
+                CriticMin = 0.20f,
+                CriticMax = 0.42f,
+                ConsolidationMinFitness = 0.30f,
+                ConsolidationMaxNormalizedBurn = 0.55f,
+                FatigueRemainingRatio = 0.35f,
+                ZombieActivationRatio = 0.20f,
+                ZombieCriticThreshold = 0.90f
+            };
+
+            ruleset.SymbolDefinitions["ALPHA"] = CreateSeedSymbol(dim, 0, 10);
+            ruleset.SymbolDefinitions["BETA"] = CreateSeedSymbol(dim, 1, 11);
+            ruleset.SymbolDefinitions["GAMMA"] = CreateSeedSymbol(dim, 2, 12);
+
+            ruleset.ReflexTriggers.Add(new ReflexTrigger
+            {
+                TargetSymbol = "ALPHA",
+                SimilarityThreshold = 0.85f,
+                ActionIntent = "resolve_state"
+            });
+
+            ProgramManifold manifold = new ProgramManifold(
+                _axKernelLoop,
+                ruleset,
+                new ProgramManifold.Configuration
+                {
+                    Name = "semantic_display_manifold",
+                    CacheCapacity = 48,
+                    AllocationPercentage = 0.15f,
+                    MinimumAllocation = 24.0f
+                });
+
+            manifold.Enqueue(new DataStream { DatasetType = "semantic_logic", DatasetId = "display_001", Payload = "ALPHA BETA GAMMA ALPHA" });
+            manifold.Enqueue(new DataStream { DatasetType = "semantic_logic", DatasetId = "display_002", Payload = "BETA GAMMA ALPHA BETA" });
+            manifold.Enqueue(new DataStream { DatasetType = "semantic_logic", DatasetId = "display_003", Payload = "GAMMA ALPHA BETA GAMMA" });
+            manifold.Enqueue(new DataStream { DatasetType = "semantic_logic", DatasetId = "display_004", Payload = "ALPHA GAMMA BETA ALPHA" });
+            manifold.RunBatch(4);
+            return manifold;
+        }
+
+        private static Tensor CreateSeedSymbol(int dim, int indexA, int indexB)
+        {
+            Tensor t = new Tensor(new Shape(dim));
+            t.Data[indexA % dim] = 1.0f;
+            t.Data[indexB % dim] = 1.0f;
+            return TensorOps.NormalizeL2(t);
         }
 
 
@@ -1858,6 +1973,7 @@ namespace AxOS
             WriteInteractiveLine("holo commands:");
             WriteInteractiveLine("  holo demo");
             WriteInteractiveLine("  holo render");
+            WriteInteractiveLine("  holo manifold");
             WriteInteractiveLine("  fixed profile: 20s, 640x480 request, logical 24x18, dim 48, mouse+mouseonly, bluesquare, vga8");
         }
 

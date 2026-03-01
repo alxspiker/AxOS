@@ -149,6 +149,10 @@ namespace AxOS.Kernel
         {
             _kernelLoop.PollSleepScheduler(idle, out _);
         }
+
+        public List<WorkingMemoryCache.CacheEntry> SnapshotWorkingMemory(int limit = 0)
+        {
+            return _kernelLoop.WorkingMemory.SnapshotByPriority(limit);
+        }
     }
 }
-
