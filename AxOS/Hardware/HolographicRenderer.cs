@@ -519,7 +519,7 @@ namespace AxOS.Hardware
             int seconds = Clamp(config.DurationSeconds, 1, 120);
             int logicalWidth = Clamp(config.LogicalWidth, 8, 200);
             int logicalHeight = Clamp(config.LogicalHeight, 6, 160);
-            int dim = Clamp(config.Dim, 32, 4096);
+            int dim = Math.Max(1024, Clamp(config.Dim, 32, 4096));
             int fps = Clamp(config.TargetFps, 1, 30);
 
             Canvas canvas = null;
@@ -818,47 +818,54 @@ namespace AxOS.Hardware
                 dim = coordinate.Total;
             }
 
+            int paletteCount = palette.Length;
+            double[] dots = new double[paletteCount];
+            double unboundNormSq = 0.0;
+
+            for (int i = 0; i < dim; i++)
+            {
+                double unbound = scene.Data[i] * coordinate.Data[i];
+                unboundNormSq += unbound * unbound;
+
+                for (int p = 0; p < paletteCount; p++)
+                {
+                    Tensor pv = palette[p].Vector;
+                    if (pv != null && i < pv.Total)
+                    {
+                        dots[p] += unbound * pv.Data[i];
+                    }
+                }
+            }
+
+            double unboundNorm = Math.Sqrt(unboundNormSq);
+            if (unboundNorm <= 1e-8)
+            {
+                return palette[0].Color;
+            }
+
             float weightedR = 0.0f;
             float weightedG = 0.0f;
             float weightedB = 0.0f;
             float totalWeight = 0.0f;
-
-            for (int p = 0; p < palette.Length; p++)
+            for (int p = 0; p < paletteCount; p++)
             {
-                Tensor paletteVector = palette[p].Vector;
-                if (paletteVector == null || paletteVector.Total == 0)
+                float similarity = (float)(dots[p] / unboundNorm); // palette vectors are already unit-normalized
+                if (similarity <= 0.0f)
                 {
                     continue;
                 }
 
-                int localDim = dim;
-                if (paletteVector.Total < localDim)
-                {
-                    localDim = paletteVector.Total;
-                }
-
-                double dot = 0.0;
-                for (int i = 0; i < localDim; i++)
-                {
-                    double unbound = scene.Data[i] * coordinate.Data[i];
-                    dot += unbound * paletteVector.Data[i];
-                }
-
-                float w = (float)dot;
-                if (w <= 0.0f)
-                {
-                    continue;
-                }
-
-                totalWeight += w;
-                weightedR += palette[p].Color.R * w;
-                weightedG += palette[p].Color.G * w;
-                weightedB += palette[p].Color.B * w;
+                // Square positive similarity so strong semantics dominate weak noise.
+                float weight = similarity * similarity;
+                totalWeight += weight;
+                weightedR += palette[p].Color.R * weight;
+                weightedG += palette[p].Color.G * weight;
+                weightedB += palette[p].Color.B * weight;
             }
 
             if (totalWeight <= 0.000001f)
             {
-                return Color.Black;
+                return palette[0].Color;
             }
 
             int r = Clamp((int)(weightedR / totalWeight), 0, 255);
