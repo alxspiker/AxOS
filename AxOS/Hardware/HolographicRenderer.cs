@@ -212,6 +212,7 @@ namespace AxOS.Hardware
                 bool useVgaDirectPath =
                     canvasBackend.IndexOf("VGA", StringComparison.OrdinalIgnoreCase) >= 0 &&
                     canvasBackend.IndexOf("SVGA", StringComparison.OrdinalIgnoreCase) < 0;
+                bool avoidFullClearInVgaMouseOnly = useVgaDirectPath && mouseOnly && !patternOverlay && !debugOverlay;
 
                 Mode mode = canvas.Mode;
                 if (mode.Width <= 0 || mode.Height <= 0)
@@ -273,6 +274,10 @@ namespace AxOS.Hardware
                 int patternTopArgb = 0;
                 int patternMidArgb = 0;
                 int patternBottomArgb = 0;
+                bool hasPreviousMouseOverlay = false;
+                int previousMouseX = 0;
+                int previousMouseY = 0;
+                Sys.MouseState previousMouseState = Sys.MouseState.None;
 
                 while (renderedFrames < targetFrames)
                 {
@@ -307,6 +312,7 @@ namespace AxOS.Hardware
                                     phase,
                                     debugOverlay,
                                     patternOverlay,
+                                    avoidFullClearInVgaMouseOnly && renderedFrames > 0,
                                     currentDebug,
                                     out frameAvgSimilarity,
                                     out framePeakSimilarity);
@@ -355,7 +361,28 @@ namespace AxOS.Hardware
                                 }
                                 else
                                 {
-                                    DrawMouseOverlay(canvas, screenWidth, screenHeight, mouseX, mouseY, mouseState);
+                                    bool overlayChanged = !hasPreviousMouseOverlay ||
+                                        previousMouseX != mouseX ||
+                                        previousMouseY != mouseY ||
+                                        previousMouseState != mouseState;
+                                    if (avoidFullClearInVgaMouseOnly && hasPreviousMouseOverlay && overlayChanged)
+                                    {
+                                        EraseMouseOverlay(canvas, screenWidth, screenHeight, previousMouseX, previousMouseY);
+                                        if (blueSquare &&
+                                            (DoesMouseOverlayTouchBlueSquare(screenWidth, screenHeight, previousMouseX, previousMouseY) ||
+                                             DoesMouseOverlayTouchBlueSquare(screenWidth, screenHeight, mouseX, mouseY)))
+                                        {
+                                            DrawCenteredBlueSquare(canvas, screenWidth, screenHeight);
+                                        }
+                                    }
+                                    if (overlayChanged)
+                                    {
+                                        DrawMouseOverlay(canvas, screenWidth, screenHeight, mouseX, mouseY, mouseState);
+                                    }
+                                    hasPreviousMouseOverlay = true;
+                                    previousMouseX = mouseX;
+                                    previousMouseY = mouseY;
+                                    previousMouseState = mouseState;
                                 }
                             }
                         }
@@ -819,6 +846,7 @@ namespace AxOS.Hardware
             int phase,
             bool debugOverlay,
             bool patternOverlay,
+            bool skipClear,
             FrameDebugStats debugStats,
             out double averageBestSimilarity,
             out double peakBestSimilarity)
@@ -845,12 +873,15 @@ namespace AxOS.Hardware
                 }
             }
 
-            try
+            if (!skipClear)
             {
-                canvas.Clear(clearColor);
-            }
-            catch
-            {
+                try
+                {
+                    canvas.Clear(clearColor);
+                }
+                catch
+                {
+                }
             }
 
             if (patternOverlay)
@@ -1178,11 +1209,6 @@ namespace AxOS.Hardware
                 return;
             }
 
-            int maxX = screenWidth - 1;
-            int maxY = screenHeight - 1;
-            int x = Clamp(mouseX, 0, maxX);
-            int y = Clamp(mouseY, 0, maxY);
-
             Color crossColor = Color.White;
             if ((mouseState & Sys.MouseState.Left) == Sys.MouseState.Left)
             {
@@ -1197,8 +1223,32 @@ namespace AxOS.Hardware
                 crossColor = Color.Yellow;
             }
 
+            DrawMouseOverlayShape(canvas, screenWidth, screenHeight, mouseX, mouseY, crossColor);
+        }
+
+        private static void EraseMouseOverlay(Canvas canvas, int screenWidth, int screenHeight, int mouseX, int mouseY)
+        {
+            if (canvas == null || screenWidth <= 1 || screenHeight <= 1)
+            {
+                return;
+            }
+
+            DrawMouseOverlayShape(canvas, screenWidth, screenHeight, mouseX, mouseY, Color.Black);
+        }
+
+        private static void DrawMouseOverlayShape(Canvas canvas, int screenWidth, int screenHeight, int mouseX, int mouseY, Color crossColor)
+        {
+            if (canvas == null || screenWidth <= 1 || screenHeight <= 1)
+            {
+                return;
+            }
+
             int hLen = Math.Max(4, screenWidth / 40);
             int vLen = Math.Max(4, screenHeight / 30);
+            int maxX = screenWidth - 1;
+            int maxY = screenHeight - 1;
+            int x = Clamp(mouseX, 0, maxX);
+            int y = Clamp(mouseY, 0, maxY);
 
             int hx0 = Clamp(x - hLen, 0, maxX);
             int hx1 = Clamp(x + hLen, 0, maxX);
@@ -1249,6 +1299,54 @@ namespace AxOS.Hardware
             canvas.DrawLine(Color.White, dx1, dy0, dx1, dy1);
             canvas.DrawLine(Color.White, dx1, dy1, dx0, dy1);
             canvas.DrawLine(Color.White, dx0, dy1, dx0, dy0);
+        }
+
+        private static bool DoesMouseOverlayTouchBlueSquare(int screenWidth, int screenHeight, int mouseX, int mouseY)
+        {
+            if (screenWidth <= 2 || screenHeight <= 2)
+            {
+                return false;
+            }
+
+            int maxX = screenWidth - 1;
+            int maxY = screenHeight - 1;
+            int x = Clamp(mouseX, 0, maxX);
+            int y = Clamp(mouseY, 0, maxY);
+
+            int hLen = Math.Max(4, screenWidth / 40);
+            int vLen = Math.Max(4, screenHeight / 30);
+            int ox0 = Clamp(x - hLen, 0, maxX);
+            int ox1 = Clamp(x + hLen, 0, maxX);
+            int oy0 = Clamp(y - vLen, 0, maxY);
+            int oy1 = Clamp(y + vLen, 0, maxY);
+
+            int side = Math.Max(16, Math.Min(screenWidth, screenHeight) / 5);
+            int cx0 = Clamp((screenWidth - side) / 2, 0, maxX);
+            int cy0 = Clamp((screenHeight - side) / 2, 0, maxY);
+            int cx1 = Clamp(cx0 + side - 1, 0, maxX);
+            int cy1 = Clamp(cy0 + side - 1, 0, maxY);
+
+            int diagSide = Math.Max(12, side / 3);
+            int dx0 = 8;
+            int dy0 = 8;
+            int dx1 = Clamp(dx0 + diagSide - 1, 0, maxX);
+            int dy1 = Clamp(dy0 + diagSide - 1, 0, maxY);
+
+            return RectanglesIntersect(ox0, oy0, ox1, oy1, cx0, cy0, cx1, cy1) ||
+                   RectanglesIntersect(ox0, oy0, ox1, oy1, dx0, dy0, dx1, dy1);
+        }
+
+        private static bool RectanglesIntersect(int ax0, int ay0, int ax1, int ay1, int bx0, int by0, int bx1, int by1)
+        {
+            if (ax1 < bx0 || bx1 < ax0)
+            {
+                return false;
+            }
+            if (ay1 < by0 || by1 < ay0)
+            {
+                return false;
+            }
+            return true;
         }
 
         private static void DrawMouseOverlayPixels(int[] pixels, int screenWidth, int screenHeight, int mouseX, int mouseY, Sys.MouseState mouseState)
