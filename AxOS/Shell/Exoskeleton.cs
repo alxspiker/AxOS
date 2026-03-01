@@ -39,6 +39,7 @@ namespace AxOS
         private const int DefaultDim = 1024;
         private const int PreviewValues = 8;
         private static readonly bool AutoRunStartupTestSequence = true;
+        private static readonly bool LogManifoldFrameFps = true;
         private HdcSystem _hdc => _semanticHdc;
 
         public Exoskeleton()
@@ -1773,7 +1774,12 @@ namespace AxOS
                     }
 
                     WriteInteractiveLine("holo_manifold_start: name=" + manifold.Name + " (ESC/Enter/Q to exit)");
-                    if (!_holographicRenderer.RunManifoldPreview(manifold, out HolographicRenderer.RenderReport report, out string error))
+                    if (!_holographicRenderer.RunManifoldPreview(
+                        manifold,
+                        out HolographicRenderer.RenderReport report,
+                        out string error,
+                        WriteInteractiveLine,
+                        LogManifoldFrameFps))
                     {
                         WriteInteractiveLine("holo_manifold_failed: " + error);
                         return;

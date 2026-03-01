@@ -5,6 +5,7 @@ using System;
 using System.Drawing;
 using AxOS.Core;
 using AxOS.Kernel;
+using Cosmos.Core;
 using Cosmos.System.Graphics;
 using Sys = Cosmos.System;
 
@@ -272,7 +273,12 @@ namespace AxOS.Hardware
             }
         }
 
-        public bool RunManifoldPreview(ProgramManifold manifold, out RenderReport report, out string error)
+        public bool RunManifoldPreview(
+            ProgramManifold manifold,
+            out RenderReport report,
+            out string error,
+            Action<string> frameLogger = null,
+            bool logFrameFps = false)
         {
             report = new RenderReport();
             error = string.Empty;
@@ -294,11 +300,10 @@ namespace AxOS.Hardware
             }
 
             Canvas canvas = null;
-            DateTime startedUtc = DateTime.UtcNow;
             try
             {
                 const int seconds = 20;
-                const int targetFps = 8;
+                const int targetFps = 30;
                 const string canvasBackend = "VGACanvas";
                 const int colorDepthBits = 8;
                 canvas = new VGACanvas(new Mode(320, 200, ColorDepth.ColorDepth8));
@@ -317,9 +322,13 @@ namespace AxOS.Hardware
                 int patternTopArgb = 0;
                 int patternMidArgb = 0;
                 int patternBottomArgb = 0;
-                DateTime nextFrameDue = DateTime.UtcNow;
-                const int cols = 40;
-                const int rows = 25;
+                long cpuHz = GetCpuCycleHzSafe();
+                double startedSeconds = ReadClockSeconds(cpuHz);
+                double nextFrameDueSeconds = startedSeconds;
+                double lastFpsLogSeconds = startedSeconds;
+                int lastFpsLogFrame = 0;
+                const int cols = 32;
+                const int rows = 20;
                 int cells = cols * rows;
                 float[] projectedField = new float[cells];
                 float[] smoothedField = new float[cells];
@@ -330,20 +339,22 @@ namespace AxOS.Hardware
                 }
                 int previousStrongestCell = -1;
                 bool firstFrame = true;
+                BuildManifoldFieldNormalized(manifoldTensor, projectedField, 0);
 
                 while (renderedFrames < targetFrames)
                 {
-                    AdvanceManifoldFrame(manifold, renderedFrames + 1);
-                    if (TryGetTopManifoldTensor(manifold, out Tensor liveTensor))
+                    double frameStartSeconds = ReadClockSeconds(cpuHz);
+                    if ((renderedFrames % 90) == 0 && TryGetTopManifoldTensor(manifold, out Tensor refreshedTensor))
                     {
-                        manifoldTensor = liveTensor;
+                        manifoldTensor = refreshedTensor;
                     }
+                    BuildManifoldFieldNormalized(manifoldTensor, projectedField, renderedFrames);
 
-                    BuildManifoldFieldNormalized(manifoldTensor, projectedField);
+                    const float blend = 0.16f;
                     for (int i = 0; i < cells; i++)
                     {
                         // Temporal smoothing for softer transitions.
-                        smoothedField[i] = (smoothedField[i] * 0.78f) + (projectedField[i] * 0.22f);
+                        smoothedField[i] = (smoothedField[i] * (1.0f - blend)) + (projectedField[i] * blend);
                     }
 
                     DrawManifoldHeatmap(
@@ -378,13 +389,14 @@ namespace AxOS.Hardware
                         }
                     }
 
-                    if ((DateTime.UtcNow - startedUtc).TotalSeconds >= seconds)
+                    double nowSeconds = ReadClockSeconds(cpuHz);
+                    if (nowSeconds - startedSeconds >= seconds)
                     {
                         break;
                     }
 
-                    nextFrameDue = nextFrameDue.AddMilliseconds(1000.0 / targetFps);
-                    while (DateTime.UtcNow < nextFrameDue)
+                    nextFrameDueSeconds += 1.0 / targetFps;
+                    while (ReadClockSeconds(cpuHz) < nextFrameDueSeconds)
                     {
                         if (Sys.KeyboardManager.KeyAvailable && Sys.KeyboardManager.TryReadKey(out Sys.KeyEvent waitKeyEvent))
                         {
@@ -400,23 +412,54 @@ namespace AxOS.Hardware
                     {
                         break;
                     }
+
+                    if (logFrameFps && frameLogger != null)
+                    {
+                        double afterFrameSeconds = ReadClockSeconds(cpuHz);
+                        if ((afterFrameSeconds - lastFpsLogSeconds) >= 1.0 || renderedFrames == targetFrames)
+                        {
+                            int intervalFrames = renderedFrames - lastFpsLogFrame;
+                            double intervalSeconds = afterFrameSeconds - lastFpsLogSeconds;
+                            double elapsedSeconds = afterFrameSeconds - startedSeconds;
+                            double intervalFps = intervalSeconds > 0.0 ? intervalFrames / intervalSeconds : 0.0;
+                            double averageFps = elapsedSeconds > 0.0 ? renderedFrames / elapsedSeconds : 0.0;
+                            double frameMs = (afterFrameSeconds - frameStartSeconds) * 1000.0;
+                            frameLogger(
+                                "holo_manifold_fps: frame=" +
+                                renderedFrames +
+                                "/" +
+                                targetFrames +
+                                ", last_frame_ms=" +
+                                frameMs.ToString("0.0") +
+                                ", fps_1s=" +
+                                intervalFps.ToString("0.00") +
+                                ", avg_fps=" +
+                                averageFps.ToString("0.00"));
+                            lastFpsLogSeconds = afterFrameSeconds;
+                            lastFpsLogFrame = renderedFrames;
+                        }
+                    }
                 }
 
-                TimeSpan elapsed = DateTime.UtcNow - startedUtc;
+                double elapsedSecondsFinal = ReadClockSeconds(cpuHz) - startedSeconds;
+                if (elapsedSecondsFinal < 0.0)
+                {
+                    elapsedSecondsFinal = 0.0;
+                }
                 report.RenderedFrames = renderedFrames;
                 report.TargetFrames = targetFrames;
                 report.EncodedPoints = manifoldTensor.Total;
                 report.Dim = manifoldTensor.Total;
                 report.ScreenWidth = screenWidth;
                 report.ScreenHeight = screenHeight;
-                report.LogicalWidth = 40;
-                report.LogicalHeight = 25;
+                report.LogicalWidth = cols;
+                report.LogicalHeight = rows;
                 report.TargetFps = targetFps;
                 report.DurationSeconds = seconds;
                 report.Threshold = 0.0;
                 report.AvgBestSimilarity = 0.0;
                 report.PeakBestSimilarity = 0.0;
-                report.ElapsedMilliseconds = (long)elapsed.TotalMilliseconds;
+                report.ElapsedMilliseconds = (long)(elapsedSecondsFinal * 1000.0);
                 report.ExitedByKey = exitedByKey;
                 report.ColorDepthBits = colorDepthBits;
                 report.CanvasBackend = canvasBackend;
@@ -494,7 +537,38 @@ namespace AxOS.Hardware
             }
         }
 
-        private static void BuildManifoldFieldNormalized(Tensor tensor, float[] field)
+        private static long GetCpuCycleHzSafe()
+        {
+            try
+            {
+                long hz = CPU.GetCPUCycleSpeed();
+                if (hz > 1_000_000L)
+                {
+                    return hz;
+                }
+            }
+            catch
+            {
+            }
+
+            return 1_000_000_000L;
+        }
+
+        private static double ReadClockSeconds(long cpuHz)
+        {
+            try
+            {
+                ulong ticks = CPU.GetCPUUptime();
+                long safeHz = cpuHz > 0 ? cpuHz : 1_000_000_000L;
+                return ticks / (double)safeHz;
+            }
+            catch
+            {
+                return DateTime.UtcNow.Ticks / (double)TimeSpan.TicksPerSecond;
+            }
+        }
+
+        private static void BuildManifoldFieldNormalized(Tensor tensor, float[] field, int frameIndex)
         {
             if (tensor == null || tensor.IsEmpty || field == null || field.Length == 0)
             {
@@ -507,6 +581,9 @@ namespace AxOS.Hardware
             }
 
             int cells = field.Length;
+            uint phaseA = (uint)(frameIndex * 131);
+            uint phaseB = (uint)(frameIndex * 17);
+            uint phaseC = (uint)(frameIndex * 29);
             for (int i = 0; i < tensor.Total; i++)
             {
                 float energy = tensor.Data[i];
@@ -519,10 +596,10 @@ namespace AxOS.Hardware
                     continue;
                 }
 
-                uint h = (uint)(i * 2654435761u);
-                int c0 = (int)(h % (uint)cells);
-                int c1 = (int)((h >> 8) % (uint)cells);
-                int c2 = (int)((h >> 16) % (uint)cells);
+                uint h = (uint)(i * 2654435761u) ^ phaseA;
+                int c0 = (int)((h + phaseB) % (uint)cells);
+                int c1 = (int)(((h >> 8) + phaseC) % (uint)cells);
+                int c2 = (int)(((h >> 16) + (phaseA >> 3)) % (uint)cells);
                 field[c0] += energy;
                 field[c1] += energy * 0.60f;
                 field[c2] += energy * 0.35f;
@@ -570,8 +647,8 @@ namespace AxOS.Hardware
                 return;
             }
 
-            const int cols = 40;
-            const int rows = 25;
+            const int cols = 32;
+            const int rows = 20;
             int cellW = Math.Max(1, screenWidth / cols);
             int cellH = Math.Max(1, screenHeight / rows);
             int drawW = cols * cellW;
@@ -603,7 +680,7 @@ namespace AxOS.Hardware
 
             for (int i = 0; i < cells; i++)
             {
-                bool valueChanged = Math.Abs(normalizedField[i] - lastDrawnField[i]) >= 0.010f;
+                bool valueChanged = Math.Abs(normalizedField[i] - lastDrawnField[i]) >= 0.015f;
                 bool highlightChanged = i == strongestCell || i == previousStrongestCell;
                 if (!fullRedraw && !valueChanged && !highlightChanged)
                 {
