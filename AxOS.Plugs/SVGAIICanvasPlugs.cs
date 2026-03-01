@@ -51,10 +51,22 @@ namespace AxOS.Hardware
                     {
                         _rowScratch[i] = unchecked((uint)data[src + i]);
                     }
+                    uint frameOffset = driver.FrameOffset;
+                    uint frameSize = driver.FrameSize;
                     int dstPixel = ((y + row) * screenW) + x;
-                    int dstByte = dstPixel * 4;
-                    driver.VideoMemory.Copy((uint)dstByte, _rowScratch, 0, width);
+                    uint dstByte = frameOffset + (uint)(dstPixel * 4);
+                    uint endByte = (uint)(width * 4);
+                    if (frameSize > 0U)
+                    {
+                        uint rel = dstByte - frameOffset;
+                        if (rel > frameSize || endByte > frameSize - rel)
+                        {
+                            continue;
+                        }
+                    }
+                    driver.VideoMemory.Copy(dstByte, _rowScratch, 0, width);
                 }
+                driver.Update((uint)x, (uint)y, (uint)width, (uint)height);
                 return;
             }
 
@@ -85,6 +97,7 @@ namespace AxOS.Hardware
                     driver.SetPixel((uint)dx, (uint)dy, unchecked((uint)data[idx]));
                 }
             }
+            driver.Update(0U, 0U, (uint)screenW, (uint)screenH);
         }
 
         public static void Display(
