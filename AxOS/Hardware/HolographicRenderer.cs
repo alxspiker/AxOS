@@ -368,9 +368,7 @@ namespace AxOS.Hardware
                                     if (avoidFullClearInVgaMouseOnly && hasPreviousMouseOverlay && overlayChanged)
                                     {
                                         EraseMouseOverlay(canvas, screenWidth, screenHeight, previousMouseX, previousMouseY);
-                                        if (blueSquare &&
-                                            (DoesMouseOverlayTouchBlueSquare(screenWidth, screenHeight, previousMouseX, previousMouseY) ||
-                                             DoesMouseOverlayTouchBlueSquare(screenWidth, screenHeight, mouseX, mouseY)))
+                                        if (blueSquare)
                                         {
                                             DrawCenteredBlueSquare(canvas, screenWidth, screenHeight);
                                         }
@@ -1282,11 +1280,7 @@ namespace AxOS.Hardware
             int x1 = Clamp(x0 + side - 1, 0, screenWidth - 1);
             int y1 = Clamp(y0 + side - 1, 0, screenHeight - 1);
             canvas.DrawFilledRectangle(Color.Blue, x0, y0, (x1 - x0) + 1, (y1 - y0) + 1);
-
-            canvas.DrawLine(Color.White, x0, y0, x1, y0);
-            canvas.DrawLine(Color.White, x1, y0, x1, y1);
-            canvas.DrawLine(Color.White, x1, y1, x0, y1);
-            canvas.DrawLine(Color.White, x0, y1, x0, y0);
+            DrawRectangleOutlineFilled(canvas, x0, y0, x1, y1, Color.White);
 
             // Secondary top-left marker to detect "top strip only" scanout faults.
             int diagSide = Math.Max(12, side / 3);
@@ -1295,58 +1289,32 @@ namespace AxOS.Hardware
             int dx1 = Clamp(dx0 + diagSide - 1, 0, screenWidth - 1);
             int dy1 = Clamp(dy0 + diagSide - 1, 0, screenHeight - 1);
             canvas.DrawFilledRectangle(Color.Blue, dx0, dy0, (dx1 - dx0) + 1, (dy1 - dy0) + 1);
-            canvas.DrawLine(Color.White, dx0, dy0, dx1, dy0);
-            canvas.DrawLine(Color.White, dx1, dy0, dx1, dy1);
-            canvas.DrawLine(Color.White, dx1, dy1, dx0, dy1);
-            canvas.DrawLine(Color.White, dx0, dy1, dx0, dy0);
+            DrawRectangleOutlineFilled(canvas, dx0, dy0, dx1, dy1, Color.White);
         }
 
-        private static bool DoesMouseOverlayTouchBlueSquare(int screenWidth, int screenHeight, int mouseX, int mouseY)
+        private static void DrawRectangleOutlineFilled(Canvas canvas, int x0, int y0, int x1, int y1, Color color)
         {
-            if (screenWidth <= 2 || screenHeight <= 2)
+            if (canvas == null || x1 < x0 || y1 < y0)
             {
-                return false;
+                return;
             }
 
-            int maxX = screenWidth - 1;
-            int maxY = screenHeight - 1;
-            int x = Clamp(mouseX, 0, maxX);
-            int y = Clamp(mouseY, 0, maxY);
-
-            int hLen = Math.Max(4, screenWidth / 40);
-            int vLen = Math.Max(4, screenHeight / 30);
-            int ox0 = Clamp(x - hLen, 0, maxX);
-            int ox1 = Clamp(x + hLen, 0, maxX);
-            int oy0 = Clamp(y - vLen, 0, maxY);
-            int oy1 = Clamp(y + vLen, 0, maxY);
-
-            int side = Math.Max(16, Math.Min(screenWidth, screenHeight) / 5);
-            int cx0 = Clamp((screenWidth - side) / 2, 0, maxX);
-            int cy0 = Clamp((screenHeight - side) / 2, 0, maxY);
-            int cx1 = Clamp(cx0 + side - 1, 0, maxX);
-            int cy1 = Clamp(cy0 + side - 1, 0, maxY);
-
-            int diagSide = Math.Max(12, side / 3);
-            int dx0 = 8;
-            int dy0 = 8;
-            int dx1 = Clamp(dx0 + diagSide - 1, 0, maxX);
-            int dy1 = Clamp(dy0 + diagSide - 1, 0, maxY);
-
-            return RectanglesIntersect(ox0, oy0, ox1, oy1, cx0, cy0, cx1, cy1) ||
-                   RectanglesIntersect(ox0, oy0, ox1, oy1, dx0, dy0, dx1, dy1);
-        }
-
-        private static bool RectanglesIntersect(int ax0, int ay0, int ax1, int ay1, int bx0, int by0, int bx1, int by1)
-        {
-            if (ax1 < bx0 || bx1 < ax0)
+            int width = (x1 - x0) + 1;
+            int height = (y1 - y0) + 1;
+            canvas.DrawFilledRectangle(color, x0, y0, width, 1);
+            if (height > 1)
             {
-                return false;
+                canvas.DrawFilledRectangle(color, x0, y1, width, 1);
             }
-            if (ay1 < by0 || by1 < ay0)
+            if (height > 2)
             {
-                return false;
+                int innerHeight = height - 2;
+                canvas.DrawFilledRectangle(color, x0, y0 + 1, 1, innerHeight);
+                if (width > 1)
+                {
+                    canvas.DrawFilledRectangle(color, x1, y0 + 1, 1, innerHeight);
+                }
             }
-            return true;
         }
 
         private static void DrawMouseOverlayPixels(int[] pixels, int screenWidth, int screenHeight, int mouseX, int mouseY, Sys.MouseState mouseState)
