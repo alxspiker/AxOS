@@ -1014,7 +1014,7 @@ namespace AxOS
         private void RunStartupTestSequence()
         {
             WriteBootAndSerialLine("startup: running holo demo");
-            HandleHolo(new List<string> { "holo", "demo", "debug" });
+            HandleHolo(new List<string> { "holo", "demo", "20", "640", "480", "24", "18", "48", "0.002", "8", "mouse", "mouseonly", "bluesquare", "svga", "d32" });
 
             WriteBootAndSerialLine("startup: tests complete, shutting down");
             ShutdownSystem();
@@ -1041,6 +1041,23 @@ namespace AxOS
             }
 
             return false;
+        }
+
+        private static int ParseColorDepthBits(List<string> args)
+        {
+            if (HasToken(args, "d8") || HasToken(args, "depth8"))
+            {
+                return 8;
+            }
+            if (HasToken(args, "d16") || HasToken(args, "depth16"))
+            {
+                return 16;
+            }
+            if (HasToken(args, "d24") || HasToken(args, "depth24"))
+            {
+                return 24;
+            }
+            return 32;
         }
 
 
@@ -1759,8 +1776,29 @@ namespace AxOS
                         Dim = args.Count > 7 ? ParseInt(args[7], 48) : 48,
                         Threshold = args.Count > 8 ? ParseDouble(args[8], 0.002) : 0.002,
                         TargetFps = args.Count > 9 ? ParseInt(args[9], 8) : 8,
-                        DebugOverlay = HasToken(args, "debug")
+                        DebugOverlay = HasToken(args, "debug"),
+                        MouseOverlay = HasToken(args, "mouse") || HasToken(args, "debug"),
+                        MouseOnly = HasToken(args, "mouseonly") || HasToken(args, "coords"),
+                        PatternOverlay = HasToken(args, "pattern"),
+                        BlueSquare = HasToken(args, "bluesquare") || HasToken(args, "square"),
+                        ForceSvga = HasToken(args, "svga") || HasToken(args, "vmware"),
+                        ForceVga8 = HasToken(args, "vga8"),
+                        ColorDepthBits = ParseColorDepthBits(args)
                     };
+
+                    if (config.MouseOnly)
+                    {
+                        config.MouseOverlay = true;
+                    }
+                    if (config.ForceSvga && config.ForceVga8)
+                    {
+                        WriteInteractiveLine("holo_failed: cannot combine 'svga' and 'vga8'");
+                        return;
+                    }
+                    if (config.ForceVga8)
+                    {
+                        config.ColorDepthBits = 8;
+                    }
 
                     string modeText = (config.ScreenWidth > 0 && config.ScreenHeight > 0)
                         ? (config.ScreenWidth + "x" + config.ScreenHeight)
@@ -1783,6 +1821,20 @@ namespace AxOS
                         config.DurationSeconds +
                         ", debug=" +
                         config.DebugOverlay +
+                        ", mouse=" +
+                        config.MouseOverlay +
+                        ", mouse_only=" +
+                        config.MouseOnly +
+                        ", pattern=" +
+                        config.PatternOverlay +
+                        ", bluesquare=" +
+                        config.BlueSquare +
+                        ", svga=" +
+                        config.ForceSvga +
+                        ", vga8=" +
+                        config.ForceVga8 +
+                        ", depth=" +
+                        config.ColorDepthBits +
                         " (ESC/Enter/Q to exit)");
 
                     if (!_holographicRenderer.RunDemo(config, out HolographicRenderer.RenderReport report, out string error))
@@ -1814,6 +1866,24 @@ namespace AxOS
                         report.ScreenHeight +
                         ", debug=" +
                         report.DebugOverlay +
+                        ", mouse=" +
+                        report.MouseOverlay +
+                        ", mouse_only=" +
+                        report.MouseOnly +
+                        ", pattern=" +
+                        report.PatternOverlay +
+                        ", bluesquare=" +
+                        report.BlueSquare +
+                        ", svga=" +
+                        report.ForceSvga +
+                        ", vga8=" +
+                        report.ForceVga8 +
+                        ", depth=" +
+                        report.ColorDepthBits +
+                        ", backend=" +
+                        report.CanvasBackend +
+                        ", display_flip=" +
+                        report.DisplayFlipUsed +
                         ", frame0_nonblack_y=" +
                         report.Frame0NonBlackMinY +
                         "-" +
@@ -1826,6 +1896,32 @@ namespace AxOS
                         report.Frame0AvgLuma.ToString("0.000", CultureInfo.InvariantCulture) +
                         ", frame0_luma_peak=" +
                         report.Frame0PeakLuma.ToString("0.000", CultureInfo.InvariantCulture) +
+                        ", mouse_samples=" +
+                        report.MouseSamples +
+                        ", mouse_start=" +
+                        report.MouseStartX +
+                        "," +
+                        report.MouseStartY +
+                        ", mouse_end=" +
+                        report.MouseEndX +
+                        "," +
+                        report.MouseEndY +
+                        ", mouse_range_x=" +
+                        report.MouseMinX +
+                        "-" +
+                        report.MouseMaxX +
+                        ", mouse_range_y=" +
+                        report.MouseMinY +
+                        "-" +
+                        report.MouseMaxY +
+                        ", probe_valid=" +
+                        report.PatternProbeValid +
+                        ", probe_top=0x" +
+                        report.PatternProbeTopArgb.ToString("X8", CultureInfo.InvariantCulture) +
+                        ", probe_mid=0x" +
+                        report.PatternProbeMidArgb.ToString("X8", CultureInfo.InvariantCulture) +
+                        ", probe_bottom=0x" +
+                        report.PatternProbeBottomArgb.ToString("X8", CultureInfo.InvariantCulture) +
                         ", exited_by_key=" +
                         report.ExitedByKey);
                     break;
@@ -1930,10 +2026,17 @@ namespace AxOS
         private void PrintHoloHelp()
         {
             WriteInteractiveLine("holo commands:");
-            WriteInteractiveLine("  holo demo [seconds] [screen_w] [screen_h] [logical_w] [logical_h] [dim] [threshold] [fps] [debug]");
-            WriteInteractiveLine("  holo render [seconds] [screen_w] [screen_h] [logical_w] [logical_h] [dim] [threshold] [fps] [debug]");
+            WriteInteractiveLine("  holo demo [seconds] [screen_w] [screen_h] [logical_w] [logical_h] [dim] [threshold] [fps] [debug] [mouse] [mouseonly] [pattern] [bluesquare] [svga] [vga8] [d16|d24|d32]");
+            WriteInteractiveLine("  holo render [seconds] [screen_w] [screen_h] [logical_w] [logical_h] [dim] [threshold] [fps] [debug] [mouse] [mouseonly] [pattern] [bluesquare] [svga] [vga8] [d16|d24|d32]");
             WriteInteractiveLine("  demo profile default: 640x480, logical 24x18, dim 48");
             WriteInteractiveLine("  add 'debug' to draw guide lines and emit frame diagnostics");
+            WriteInteractiveLine("  add 'mouse' to draw a live crosshair and report coordinate ranges");
+            WriteInteractiveLine("  add 'mouseonly' to skip hologram math and run high-refresh coordinate testing");
+            WriteInteractiveLine("  add 'pattern' to draw a calibration pattern");
+            WriteInteractiveLine("  add 'bluesquare' to draw a centered blue square test primitive");
+            WriteInteractiveLine("  add 'svga' to force SVGAII canvas backend (useful with QEMU -vga vmware)");
+            WriteInteractiveLine("  add 'vga8' to force mode 320x200 Color8 for adapter sanity checks");
+            WriteInteractiveLine("  add 'd16' or 'd24' to test 640x480 with lower color depth");
         }
 
         private bool TryEncodeText(string text, int requestedDim, out Tensor encoded, out List<string> tokens, out string error)

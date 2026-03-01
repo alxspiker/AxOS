@@ -4,10 +4,13 @@ cd /d "%~dp0"
 
 set "SKIP_BUILD="
 set "SERIAL_MODE="
-if /I "%~1"=="nobuild" set "SKIP_BUILD=1"
-if /I "%~2"=="nobuild" set "SKIP_BUILD=1"
-if /I "%~1"=="serial" set "SERIAL_MODE=1"
-if /I "%~2"=="serial" set "SERIAL_MODE=1"
+set "VGA_MODEL=vmware"
+for %%A in (%*) do (
+    if /I "%%~A"=="nobuild" set "SKIP_BUILD=1"
+    if /I "%%~A"=="serial" set "SERIAL_MODE=1"
+    if /I "%%~A"=="vmware" set "VGA_MODEL=vmware"
+    if /I "%%~A"=="std" set "VGA_MODEL=std"
+)
 
 if not defined SKIP_BUILD (
     call "%~dp0build.bat"
@@ -47,13 +50,12 @@ set "DISPLAY_OPTS=-serial stdio"
 if defined SERIAL_MODE (
     REM Removed "-display none" so we don't blind the system while debugging!
     set "DISPLAY_OPTS=-monitor none -serial stdio"
-    echo Running AxOS in serial mode with video enabled...
+    echo Running AxOS in serial mode with video enabled - vga=%VGA_MODEL%...
 ) else (
-    echo Running AxOS...
+    echo Running AxOS - vga=%VGA_MODEL%...
 )
 
-REM Use "-vga std" so FullScreenCanvas dynamic path stays stable.
-"%QEMU_EXE%" -vga std -cdrom "%ISO%" -boot d -m 256 %DISPLAY_OPTS% -drive file="%DATA_IMG%",format=raw,if=ide,media=disk -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot
+"%QEMU_EXE%" -vga %VGA_MODEL% -cdrom "%ISO%" -boot d -m 256 %DISPLAY_OPTS% -drive file="%DATA_IMG%",format=raw,if=ide,media=disk -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot
 
 set "QEMU_EXIT=%ERRORLEVEL%"
 echo QEMU exited with code %QEMU_EXIT%.

@@ -9,6 +9,7 @@ using AxOS.Hardware;
 using AxOS.Storage;
 using AxOS.Diagnostics;
 using Cosmos.System.Graphics;
+using System.Collections.Generic;
 using System.Drawing;
 using Sys = Cosmos.System;
 
@@ -28,6 +29,13 @@ namespace AxOS.Hardware
             public int TargetFps = 8;
             public int Seed = 1337;
             public bool DebugOverlay = false;
+            public bool MouseOverlay = false;
+            public bool MouseOnly = false;
+            public bool PatternOverlay = false;
+            public bool ForceVga8 = false;
+            public bool ForceSvga = false;
+            public bool BlueSquare = false;
+            public int ColorDepthBits = 32;
         }
 
         public sealed class RenderReport
@@ -48,12 +56,34 @@ namespace AxOS.Hardware
             public long ElapsedMilliseconds;
             public bool ExitedByKey;
             public bool DebugOverlay;
+            public bool MouseOverlay;
+            public bool MouseOnly;
+            public bool PatternOverlay;
+            public bool ForceVga8;
+            public bool ForceSvga;
+            public bool BlueSquare;
+            public int ColorDepthBits;
+            public string CanvasBackend = string.Empty;
+            public bool DisplayFlipUsed;
             public int Frame0NonBlackMinY = -1;
             public int Frame0NonBlackMaxY = -1;
             public int Frame0NonBlackBlocks;
             public int Frame0TotalBlocks;
             public double Frame0AvgLuma;
             public double Frame0PeakLuma;
+            public int MouseSamples;
+            public int MouseStartX = -1;
+            public int MouseStartY = -1;
+            public int MouseEndX = -1;
+            public int MouseEndY = -1;
+            public int MouseMinX = -1;
+            public int MouseMaxX = -1;
+            public int MouseMinY = -1;
+            public int MouseMaxY = -1;
+            public bool PatternProbeValid;
+            public int PatternProbeTopArgb;
+            public int PatternProbeMidArgb;
+            public int PatternProbeBottomArgb;
         }
 
         private sealed class PaletteEntry
@@ -71,6 +101,19 @@ namespace AxOS.Hardware
             public int TotalBlocks;
             public double LumaSum;
             public double PeakLuma;
+        }
+
+        private sealed class MouseDebugStats
+        {
+            public int Samples;
+            public int StartX = -1;
+            public int StartY = -1;
+            public int EndX = -1;
+            public int EndY = -1;
+            public int MinX = int.MaxValue;
+            public int MaxX = -1;
+            public int MinY = int.MaxValue;
+            public int MaxY = -1;
         }
 
         public bool RunDemo(RenderConfig config, out RenderReport report, out string error)
@@ -96,22 +139,58 @@ namespace AxOS.Hardware
             double threshold = Clamp(config.Threshold, -1.0, 1.0);
             int seed = config.Seed;
             bool debugOverlay = config.DebugOverlay;
+            bool mouseOverlay = config.MouseOverlay;
+            bool mouseOnly = config.MouseOnly;
+            bool patternOverlay = config.PatternOverlay;
+            bool forceVga8 = config.ForceVga8;
+            bool forceSvga = config.ForceSvga;
+            bool blueSquare = config.BlueSquare;
+            int requestedDepthBits = NormalizeDepthBits(config.ColorDepthBits);
 
             Canvas canvas = null;
             DateTime startedUtc = DateTime.UtcNow;
             try
             {
+                if (forceVga8 && forceSvga)
+                {
+                    error = "invalid_config:svga_and_vga8_are_mutually_exclusive";
+                    return false;
+                }
+
+                string canvasBackend = string.Empty;
+                int reqW;
+                int reqH;
+                ColorDepth reqDepth;
+                if (forceVga8)
+                {
+                    reqW = 320;
+                    reqH = 200;
+                    reqDepth = ColorDepth.ColorDepth8;
+                }
+                else
+                {
+                    reqW = requestedScreenWidth > 0 ? Clamp(requestedScreenWidth, 160, 1024) : 640;
+                    reqH = requestedScreenHeight > 0 ? Clamp(requestedScreenHeight, 120, 768) : 480;
+                    reqDepth = BitsToColorDepth(requestedDepthBits);
+                }
+
+                Mode requestedMode = new Mode(reqW, reqH, reqDepth);
                 try
                 {
-                    if (requestedScreenWidth > 0 && requestedScreenHeight > 0)
+                    if (forceVga8)
                     {
-                        int reqW = Clamp(requestedScreenWidth, 160, 1024);
-                        int reqH = Clamp(requestedScreenHeight, 120, 768);
-                        canvas = FullScreenCanvas.GetFullScreenCanvas(new Mode(reqW, reqH, ColorDepth.ColorDepth32));
+                        canvas = new VGACanvas(requestedMode);
+                        canvasBackend = "VGACanvas";
+                    }
+                    else if (forceSvga)
+                    {
+                        canvas = new SVGAIICanvas(requestedMode);
+                        canvasBackend = "SVGAIICanvas";
                     }
                     else
                     {
-                        canvas = FullScreenCanvas.GetFullScreenCanvas();
+                        canvas = new VBECanvas(requestedMode);
+                        canvasBackend = "VBECanvas";
                     }
                 }
                 catch (Exception ex)
@@ -123,6 +202,13 @@ namespace AxOS.Hardware
                 {
                     error = "graphics_canvas_unavailable";
                     return false;
+                }
+                bool useDisplayFlip = ShouldUseDisplayFlip(canvasBackend);
+                if (forceSvga)
+                {
+                    // This stack faults in Display() on SVGAII.
+                    // Keep flip disabled and render via direct primitives.
+                    useDisplayFlip = false;
                 }
 
                 Mode mode = canvas.Mode;
@@ -142,6 +228,8 @@ namespace AxOS.Hardware
                     logicalHeight = screenHeight;
                 }
 
+                TryConfigureMouse(screenWidth, screenHeight);
+
                 try
                 {
                     canvas.Clear(Color.Black);
@@ -150,11 +238,26 @@ namespace AxOS.Hardware
                 {
                 }
 
-                Tensor[] coordinates = BuildCoordinateField(logicalWidth, logicalHeight, dim, (ulong)(uint)seed);
-                PaletteEntry[] palette = BuildPalette(dim, (ulong)(uint)seed);
-                Tensor sceneTensor = BuildSceneTensor(logicalWidth, logicalHeight, coordinates, palette, out int encodedPoints);
-                Tensor frameSceneScratch = sceneTensor.Copy();
+                Tensor[] coordinates = null;
+                PaletteEntry[] palette = null;
+                Tensor sceneTensor = null;
+                Tensor frameSceneScratch = null;
+                int encodedPoints = 0;
+                if (!mouseOnly)
+                {
+                    coordinates = BuildCoordinateField(logicalWidth, logicalHeight, dim, (ulong)(uint)seed);
+                    palette = BuildPalette(dim, (ulong)(uint)seed);
+                    sceneTensor = BuildSceneTensor(logicalWidth, logicalHeight, coordinates, palette, out encodedPoints);
+                    frameSceneScratch = sceneTensor.Copy();
+                }
                 Pen framePen = new Pen(Color.Black, 1);
+                Bitmap svgaMouseFrame = null;
+                int[] svgaMousePixels = null;
+                if (forceSvga && mouseOnly)
+                {
+                    svgaMouseFrame = new Bitmap((uint)screenWidth, (uint)screenHeight, ColorDepth.ColorDepth32);
+                    svgaMousePixels = svgaMouseFrame.rawData;
+                }
 
                 int targetFrames = Math.Max(1, seconds * fps);
                 double frameAverageAccumulator = 0.0;
@@ -163,31 +266,108 @@ namespace AxOS.Hardware
                 int renderedFrames = 0;
                 bool exitedByKey = false;
                 FrameDebugStats frame0Debug = null;
+                MouseDebugStats mouseStats = new MouseDebugStats();
+                bool patternProbeCaptured = false;
+                int patternTopArgb = 0;
+                int patternMidArgb = 0;
+                int patternBottomArgb = 0;
 
                 while (renderedFrames < targetFrames)
                 {
-                    TensorOps.PermuteInPlace(sceneTensor, phase, frameSceneScratch);
                     double frameAvgSimilarity;
                     double framePeakSimilarity;
                     FrameDebugStats currentDebug = renderedFrames == 0 ? new FrameDebugStats() : null;
                     try
                     {
-                        RenderFrame(
-                            frameSceneScratch,
-                            coordinates,
-                            palette,
-                            threshold,
-                            logicalWidth,
-                            logicalHeight,
-                            screenWidth,
-                            screenHeight,
-                            phase,
-                            canvas,
-                            framePen,
-                            debugOverlay,
-                            currentDebug,
-                            out frameAvgSimilarity,
-                            out framePeakSimilarity);
+                        bool renderedToPixelBuffer = false;
+                        if (mouseOnly)
+                        {
+                            if (svgaMousePixels != null)
+                            {
+                                RenderMouseFramePixels(
+                                    svgaMousePixels,
+                                    screenWidth,
+                                    screenHeight,
+                                    phase,
+                                    debugOverlay,
+                                    patternOverlay,
+                                    currentDebug,
+                                    out frameAvgSimilarity,
+                                    out framePeakSimilarity);
+                                renderedToPixelBuffer = true;
+                            }
+                            else
+                            {
+                                RenderMouseFrame(
+                                    canvas,
+                                    framePen,
+                                    screenWidth,
+                                    screenHeight,
+                                    phase,
+                                    debugOverlay,
+                                    patternOverlay,
+                                    currentDebug,
+                                    out frameAvgSimilarity,
+                                    out framePeakSimilarity);
+                            }
+                        }
+                        else
+                        {
+                            TensorOps.PermuteInPlace(sceneTensor, phase, frameSceneScratch);
+                            RenderFrame(
+                                frameSceneScratch,
+                                coordinates,
+                                palette,
+                                threshold,
+                                logicalWidth,
+                                logicalHeight,
+                                screenWidth,
+                                screenHeight,
+                                phase,
+                                canvas,
+                                framePen,
+                                debugOverlay,
+                                currentDebug,
+                                out frameAvgSimilarity,
+                                out framePeakSimilarity);
+                        }
+
+                        if (blueSquare)
+                        {
+                            if (renderedToPixelBuffer && svgaMousePixels != null)
+                            {
+                                DrawCenteredBlueSquarePixels(svgaMousePixels, screenWidth, screenHeight);
+                            }
+                            else
+                            {
+                                DrawCenteredBlueSquare(canvas, framePen, screenWidth, screenHeight);
+                            }
+                        }
+
+                        if (mouseOverlay)
+                        {
+                            if (TryReadMouse(screenWidth, screenHeight, out int mouseX, out int mouseY, out Sys.MouseState mouseState))
+                            {
+                                AccumulateMouseStats(mouseStats, mouseX, mouseY);
+                                if (renderedToPixelBuffer && svgaMousePixels != null)
+                                {
+                                    DrawMouseOverlayPixels(svgaMousePixels, screenWidth, screenHeight, mouseX, mouseY, mouseState);
+                                }
+                                else
+                                {
+                                    DrawMouseOverlay(canvas, framePen, screenWidth, screenHeight, mouseX, mouseY, mouseState);
+                                }
+                            }
+                        }
+
+                        if (renderedToPixelBuffer && svgaMouseFrame != null)
+                        {
+                            if (!patternProbeCaptured && svgaMousePixels != null)
+                            {
+                                patternProbeCaptured = TrySamplePatternPixelsFromBuffer(svgaMousePixels, screenWidth, screenHeight, out patternTopArgb, out patternMidArgb, out patternBottomArgb);
+                            }
+                            canvas.DrawImage(svgaMouseFrame, 0, 0);
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -214,22 +394,31 @@ namespace AxOS.Hardware
                         frame0Debug = currentDebug;
                     }
 
-                    try
+                    if (useDisplayFlip)
                     {
-                        canvas.Display();
+                        try
+                        {
+                            canvas.Display();
+                        }
+                        catch (Exception ex)
+                        {
+                            error =
+                                "render_failed:display_stage:frame=" +
+                                renderedFrames +
+                                ", mode=" +
+                                screenWidth +
+                                "x" +
+                                screenHeight +
+                                ", detail=" +
+                                ex.Message;
+                            return false;
+                        }
                     }
-                    catch (Exception ex)
+                    if (!patternProbeCaptured)
                     {
-                        error =
-                            "render_failed:display_stage:frame=" +
-                            renderedFrames +
-                            ", mode=" +
-                            screenWidth +
-                            "x" +
-                            screenHeight +
-                            ", detail=" +
-                            ex.Message;
-                        return false;
+                        // Always probe the post-present canvas once so serial logs reflect what the
+                        // active backend reports at key screen points.
+                        patternProbeCaptured = TrySamplePatternPixels(canvas, screenWidth, screenHeight, out patternTopArgb, out patternMidArgb, out patternBottomArgb);
                     }
 
                     renderedFrames++;
@@ -278,6 +467,15 @@ namespace AxOS.Hardware
                 report.ElapsedMilliseconds = (long)elapsed.TotalMilliseconds;
                 report.ExitedByKey = exitedByKey;
                 report.DebugOverlay = debugOverlay;
+                report.MouseOverlay = mouseOverlay;
+                report.MouseOnly = mouseOnly;
+                report.PatternOverlay = patternOverlay;
+                report.ForceVga8 = forceVga8;
+                report.ForceSvga = forceSvga;
+                report.BlueSquare = blueSquare;
+                report.ColorDepthBits = ColorDepthToBits(mode.ColorDepth);
+                report.CanvasBackend = string.IsNullOrEmpty(canvasBackend) ? (canvas == null ? "unknown" : canvas.GetType().Name) : canvasBackend;
+                report.DisplayFlipUsed = useDisplayFlip;
                 if (frame0Debug != null)
                 {
                     report.Frame0NonBlackMinY = frame0Debug.NonBlackBlocks > 0 ? frame0Debug.NonBlackMinY : -1;
@@ -287,6 +485,22 @@ namespace AxOS.Hardware
                     report.Frame0AvgLuma = frame0Debug.TotalBlocks > 0 ? frame0Debug.LumaSum / frame0Debug.TotalBlocks : 0.0;
                     report.Frame0PeakLuma = frame0Debug.PeakLuma;
                 }
+                if (mouseStats.Samples > 0)
+                {
+                    report.MouseSamples = mouseStats.Samples;
+                    report.MouseStartX = mouseStats.StartX;
+                    report.MouseStartY = mouseStats.StartY;
+                    report.MouseEndX = mouseStats.EndX;
+                    report.MouseEndY = mouseStats.EndY;
+                    report.MouseMinX = mouseStats.MinX;
+                    report.MouseMaxX = mouseStats.MaxX;
+                    report.MouseMinY = mouseStats.MinY;
+                    report.MouseMaxY = mouseStats.MaxY;
+                }
+                report.PatternProbeValid = patternProbeCaptured;
+                report.PatternProbeTopArgb = patternTopArgb;
+                report.PatternProbeMidArgb = patternMidArgb;
+                report.PatternProbeBottomArgb = patternBottomArgb;
                 return true;
             }
             catch (Exception ex)
@@ -596,6 +810,111 @@ namespace AxOS.Hardware
             }
         }
 
+        private static void RenderMouseFrame(
+            Canvas canvas,
+            Pen pen,
+            int screenWidth,
+            int screenHeight,
+            int phase,
+            bool debugOverlay,
+            bool patternOverlay,
+            FrameDebugStats debugStats,
+            out double averageBestSimilarity,
+            out double peakBestSimilarity)
+        {
+            Color clearColor = Color.Black;
+            if (patternOverlay)
+            {
+                int band = phase % 4;
+                if (band == 1)
+                {
+                    clearColor = Color.Red;
+                }
+                else if (band == 2)
+                {
+                    clearColor = Color.Lime;
+                }
+                else if (band == 3)
+                {
+                    clearColor = Color.Blue;
+                }
+                else
+                {
+                    clearColor = Color.White;
+                }
+            }
+
+            try
+            {
+                canvas.Clear(clearColor);
+            }
+            catch
+            {
+            }
+
+            if (patternOverlay)
+            {
+                DrawCalibrationPattern(canvas, pen, screenWidth, screenHeight, phase);
+            }
+
+            if (debugOverlay)
+            {
+                DrawDebugOverlay(canvas, pen, screenWidth, screenHeight, debugStats);
+            }
+
+            averageBestSimilarity = 0.0;
+            peakBestSimilarity = 0.0;
+        }
+
+        private static void RenderMouseFramePixels(
+            int[] pixels,
+            int screenWidth,
+            int screenHeight,
+            int phase,
+            bool debugOverlay,
+            bool patternOverlay,
+            FrameDebugStats debugStats,
+            out double averageBestSimilarity,
+            out double peakBestSimilarity)
+        {
+            Color clearColor = Color.Black;
+            if (patternOverlay)
+            {
+                int band = phase % 4;
+                if (band == 1)
+                {
+                    clearColor = Color.Red;
+                }
+                else if (band == 2)
+                {
+                    clearColor = Color.Lime;
+                }
+                else if (band == 3)
+                {
+                    clearColor = Color.Blue;
+                }
+                else
+                {
+                    clearColor = Color.White;
+                }
+            }
+
+            ClearPixels(pixels, clearColor.ToArgb());
+
+            if (patternOverlay)
+            {
+                DrawCalibrationPatternPixels(pixels, screenWidth, screenHeight, phase);
+            }
+
+            if (debugOverlay)
+            {
+                DrawDebugOverlayPixels(pixels, screenWidth, screenHeight, debugStats);
+            }
+
+            averageBestSimilarity = 0.0;
+            peakBestSimilarity = 0.0;
+        }
+
         private static void DrawDebugOverlay(Canvas canvas, Pen pen, int screenWidth, int screenHeight, FrameDebugStats stats)
         {
             if (screenWidth <= 1 || screenHeight <= 1)
@@ -632,6 +951,404 @@ namespace AxOS.Hardware
             }
         }
 
+        private static void DrawDebugOverlayPixels(int[] pixels, int screenWidth, int screenHeight, FrameDebugStats stats)
+        {
+            if (pixels == null || screenWidth <= 1 || screenHeight <= 1)
+            {
+                return;
+            }
+
+            int maxX = screenWidth - 1;
+            int maxY = screenHeight - 1;
+            int y25 = maxY / 4;
+            int y50 = maxY / 2;
+            int y75 = (maxY * 3) / 4;
+
+            int white = Color.White.ToArgb();
+            DrawHorizontalPixels(pixels, screenWidth, screenHeight, 0, maxX, 0, white);
+            DrawHorizontalPixels(pixels, screenWidth, screenHeight, 0, maxX, maxY, white);
+            DrawVerticalPixels(pixels, screenWidth, screenHeight, 0, 0, maxY, white);
+            DrawVerticalPixels(pixels, screenWidth, screenHeight, maxX, 0, maxY, white);
+
+            DrawHorizontalPixels(pixels, screenWidth, screenHeight, 0, maxX, y25, Color.FromArgb(255, 64, 64).ToArgb());
+            DrawHorizontalPixels(pixels, screenWidth, screenHeight, 0, maxX, y50, Color.FromArgb(64, 255, 64).ToArgb());
+            DrawHorizontalPixels(pixels, screenWidth, screenHeight, 0, maxX, y75, Color.FromArgb(64, 64, 255).ToArgb());
+
+            if (stats != null && stats.NonBlackBlocks > 0)
+            {
+                int yMin = Clamp(stats.NonBlackMinY, 0, maxY);
+                int yMax = Clamp(stats.NonBlackMaxY, 0, maxY);
+                int yellow = Color.Yellow.ToArgb();
+                DrawHorizontalPixels(pixels, screenWidth, screenHeight, 0, maxX, yMin, yellow);
+                DrawHorizontalPixels(pixels, screenWidth, screenHeight, 0, maxX, yMax, yellow);
+            }
+        }
+
+        private static void DrawCalibrationPattern(Canvas canvas, Pen pen, int screenWidth, int screenHeight, int phase)
+        {
+            if (canvas == null || pen == null || screenWidth <= 1 || screenHeight <= 1)
+            {
+                return;
+            }
+
+            int step = Math.Max(6, Math.Min(screenWidth, screenHeight) / 64);
+            int halfY = screenHeight / 2;
+            int halfX = screenWidth / 2;
+            int phaseBand = (phase / 2) & 1;
+
+            for (int y = 0; y < screenHeight; y += step)
+            {
+                int yBand = y / step;
+                for (int x = 0; x < screenWidth; x += step)
+                {
+                    int xBand = x / step;
+                    bool checker = ((xBand + yBand + phaseBand) & 1) == 0;
+
+                    Color c;
+                    if (y < halfY)
+                    {
+                        c = checker ? Color.FromArgb(255, 64, 64) : Color.FromArgb(64, 64, 255);
+                    }
+                    else
+                    {
+                        c = checker ? Color.FromArgb(64, 255, 64) : Color.FromArgb(255, 255, 64);
+                    }
+
+                    pen.Color = c;
+                    canvas.DrawPoint(pen, x, y);
+                }
+            }
+
+            pen.Color = Color.White;
+            for (int x = 0; x < screenWidth; x += 2)
+            {
+                canvas.DrawPoint(pen, x, halfY);
+            }
+            for (int y = 0; y < screenHeight; y += 2)
+            {
+                canvas.DrawPoint(pen, halfX, y);
+            }
+
+            int sweepY = phase % screenHeight;
+            int sweepX = (phase * 3) % screenWidth;
+            pen.Color = Color.Magenta;
+            for (int x = 0; x < screenWidth; x += 2)
+            {
+                canvas.DrawPoint(pen, x, sweepY);
+            }
+            pen.Color = Color.Cyan;
+            for (int y = 0; y < screenHeight; y += 2)
+            {
+                canvas.DrawPoint(pen, sweepX, y);
+            }
+        }
+
+        private static void DrawCalibrationPatternPixels(int[] pixels, int screenWidth, int screenHeight, int phase)
+        {
+            if (pixels == null || screenWidth <= 1 || screenHeight <= 1)
+            {
+                return;
+            }
+
+            int step = Math.Max(6, Math.Min(screenWidth, screenHeight) / 64);
+            int halfY = screenHeight / 2;
+            int halfX = screenWidth / 2;
+            int phaseBand = (phase / 2) & 1;
+
+            for (int y = 0; y < screenHeight; y += step)
+            {
+                int yBand = y / step;
+                for (int x = 0; x < screenWidth; x += step)
+                {
+                    int xBand = x / step;
+                    bool checker = ((xBand + yBand + phaseBand) & 1) == 0;
+                    int color = (y < halfY)
+                        ? (checker ? Color.FromArgb(255, 64, 64).ToArgb() : Color.FromArgb(64, 64, 255).ToArgb())
+                        : (checker ? Color.FromArgb(64, 255, 64).ToArgb() : Color.FromArgb(255, 255, 64).ToArgb());
+                    DrawPointPixels(pixels, screenWidth, screenHeight, x, y, color);
+                }
+            }
+
+            int white = Color.White.ToArgb();
+            for (int x = 0; x < screenWidth; x += 2)
+            {
+                DrawPointPixels(pixels, screenWidth, screenHeight, x, halfY, white);
+            }
+            for (int y = 0; y < screenHeight; y += 2)
+            {
+                DrawPointPixels(pixels, screenWidth, screenHeight, halfX, y, white);
+            }
+
+            int sweepY = phase % screenHeight;
+            int sweepX = (phase * 3) % screenWidth;
+            int magenta = Color.Magenta.ToArgb();
+            int cyan = Color.Cyan.ToArgb();
+            for (int x = 0; x < screenWidth; x += 2)
+            {
+                DrawPointPixels(pixels, screenWidth, screenHeight, x, sweepY, magenta);
+            }
+            for (int y = 0; y < screenHeight; y += 2)
+            {
+                DrawPointPixels(pixels, screenWidth, screenHeight, sweepX, y, cyan);
+            }
+        }
+
+        private static void TryConfigureMouse(int screenWidth, int screenHeight)
+        {
+            if (screenWidth <= 0 || screenHeight <= 0)
+            {
+                return;
+            }
+
+            try
+            {
+                uint maxX = (uint)Math.Max(1, screenWidth - 1);
+                uint maxY = (uint)Math.Max(1, screenHeight - 1);
+
+                Sys.MouseManager.ScreenWidth = maxX;
+                Sys.MouseManager.ScreenHeight = maxY;
+
+                if (Sys.MouseManager.X > maxX)
+                {
+                    Sys.MouseManager.X = maxX / 2;
+                }
+                if (Sys.MouseManager.Y > maxY)
+                {
+                    Sys.MouseManager.Y = maxY / 2;
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private static bool TryReadMouse(int screenWidth, int screenHeight, out int x, out int y, out Sys.MouseState mouseState)
+        {
+            x = 0;
+            y = 0;
+            mouseState = Sys.MouseState.None;
+            if (screenWidth <= 0 || screenHeight <= 0)
+            {
+                return false;
+            }
+
+            try
+            {
+                x = Clamp((int)Sys.MouseManager.X, 0, screenWidth - 1);
+                y = Clamp((int)Sys.MouseManager.Y, 0, screenHeight - 1);
+                mouseState = Sys.MouseManager.MouseState;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static void AccumulateMouseStats(MouseDebugStats stats, int x, int y)
+        {
+            if (stats == null)
+            {
+                return;
+            }
+
+            if (stats.Samples == 0)
+            {
+                stats.StartX = x;
+                stats.StartY = y;
+            }
+
+            stats.EndX = x;
+            stats.EndY = y;
+            if (x < stats.MinX)
+            {
+                stats.MinX = x;
+            }
+            if (x > stats.MaxX)
+            {
+                stats.MaxX = x;
+            }
+            if (y < stats.MinY)
+            {
+                stats.MinY = y;
+            }
+            if (y > stats.MaxY)
+            {
+                stats.MaxY = y;
+            }
+            stats.Samples++;
+        }
+
+        private static void DrawMouseOverlay(Canvas canvas, Pen pen, int screenWidth, int screenHeight, int mouseX, int mouseY, Sys.MouseState mouseState)
+        {
+            if (canvas == null || pen == null || screenWidth <= 1 || screenHeight <= 1)
+            {
+                return;
+            }
+
+            int maxX = screenWidth - 1;
+            int maxY = screenHeight - 1;
+            int x = Clamp(mouseX, 0, maxX);
+            int y = Clamp(mouseY, 0, maxY);
+
+            Color crossColor = Color.White;
+            if ((mouseState & Sys.MouseState.Left) == Sys.MouseState.Left)
+            {
+                crossColor = Color.Red;
+            }
+            else if ((mouseState & Sys.MouseState.Right) == Sys.MouseState.Right)
+            {
+                crossColor = Color.Cyan;
+            }
+            else if ((mouseState & Sys.MouseState.Middle) == Sys.MouseState.Middle)
+            {
+                crossColor = Color.Yellow;
+            }
+
+            int hLen = Math.Max(4, screenWidth / 40);
+            int vLen = Math.Max(4, screenHeight / 30);
+
+            int hx0 = Clamp(x - hLen, 0, maxX);
+            int hx1 = Clamp(x + hLen, 0, maxX);
+            int vy0 = Clamp(y - vLen, 0, maxY);
+            int vy1 = Clamp(y + vLen, 0, maxY);
+
+            pen.Color = crossColor;
+            canvas.DrawLine(pen, hx0, y, hx1, y);
+            canvas.DrawLine(pen, x, vy0, x, vy1);
+
+            int b = 2;
+            int bx0 = Clamp(x - b, 0, maxX);
+            int bx1 = Clamp(x + b, 0, maxX);
+            int by0 = Clamp(y - b, 0, maxY);
+            int by1 = Clamp(y + b, 0, maxY);
+            canvas.DrawLine(pen, bx0, by0, bx1, by0);
+            canvas.DrawLine(pen, bx1, by0, bx1, by1);
+            canvas.DrawLine(pen, bx1, by1, bx0, by1);
+            canvas.DrawLine(pen, bx0, by1, bx0, by0);
+        }
+
+        private static void DrawCenteredBlueSquare(Canvas canvas, Pen pen, int screenWidth, int screenHeight)
+        {
+            if (canvas == null || pen == null || screenWidth <= 2 || screenHeight <= 2)
+            {
+                return;
+            }
+
+            int side = Math.Max(16, Math.Min(screenWidth, screenHeight) / 5);
+            int x0 = Clamp((screenWidth - side) / 2, 0, screenWidth - 1);
+            int y0 = Clamp((screenHeight - side) / 2, 0, screenHeight - 1);
+            int x1 = Clamp(x0 + side - 1, 0, screenWidth - 1);
+            int y1 = Clamp(y0 + side - 1, 0, screenHeight - 1);
+
+            pen.Color = Color.Blue;
+            for (int y = y0; y <= y1; y++)
+            {
+                canvas.DrawLine(pen, x0, y, x1, y);
+            }
+
+            pen.Color = Color.White;
+            canvas.DrawLine(pen, x0, y0, x1, y0);
+            canvas.DrawLine(pen, x1, y0, x1, y1);
+            canvas.DrawLine(pen, x1, y1, x0, y1);
+            canvas.DrawLine(pen, x0, y1, x0, y0);
+
+            // Secondary top-left marker to detect "top strip only" scanout faults.
+            int diagSide = Math.Max(12, side / 3);
+            int dx0 = 8;
+            int dy0 = 8;
+            int dx1 = Clamp(dx0 + diagSide - 1, 0, screenWidth - 1);
+            int dy1 = Clamp(dy0 + diagSide - 1, 0, screenHeight - 1);
+            pen.Color = Color.Blue;
+            for (int y = dy0; y <= dy1; y++)
+            {
+                canvas.DrawLine(pen, dx0, y, dx1, y);
+            }
+            pen.Color = Color.White;
+            canvas.DrawLine(pen, dx0, dy0, dx1, dy0);
+            canvas.DrawLine(pen, dx1, dy0, dx1, dy1);
+            canvas.DrawLine(pen, dx1, dy1, dx0, dy1);
+            canvas.DrawLine(pen, dx0, dy1, dx0, dy0);
+        }
+
+        private static void DrawMouseOverlayPixels(int[] pixels, int screenWidth, int screenHeight, int mouseX, int mouseY, Sys.MouseState mouseState)
+        {
+            if (pixels == null || screenWidth <= 1 || screenHeight <= 1)
+            {
+                return;
+            }
+
+            int maxX = screenWidth - 1;
+            int maxY = screenHeight - 1;
+            int x = Clamp(mouseX, 0, maxX);
+            int y = Clamp(mouseY, 0, maxY);
+
+            Color crossColor = Color.White;
+            if ((mouseState & Sys.MouseState.Left) == Sys.MouseState.Left)
+            {
+                crossColor = Color.Red;
+            }
+            else if ((mouseState & Sys.MouseState.Right) == Sys.MouseState.Right)
+            {
+                crossColor = Color.Cyan;
+            }
+            else if ((mouseState & Sys.MouseState.Middle) == Sys.MouseState.Middle)
+            {
+                crossColor = Color.Yellow;
+            }
+
+            int hLen = Math.Max(4, screenWidth / 40);
+            int vLen = Math.Max(4, screenHeight / 30);
+            int hx0 = Clamp(x - hLen, 0, maxX);
+            int hx1 = Clamp(x + hLen, 0, maxX);
+            int vy0 = Clamp(y - vLen, 0, maxY);
+            int vy1 = Clamp(y + vLen, 0, maxY);
+            int color = crossColor.ToArgb();
+
+            DrawHorizontalPixels(pixels, screenWidth, screenHeight, hx0, hx1, y, color);
+            DrawVerticalPixels(pixels, screenWidth, screenHeight, x, vy0, vy1, color);
+
+            int b = 2;
+            int bx0 = Clamp(x - b, 0, maxX);
+            int bx1 = Clamp(x + b, 0, maxX);
+            int by0 = Clamp(y - b, 0, maxY);
+            int by1 = Clamp(y + b, 0, maxY);
+            DrawRectanglePixels(pixels, screenWidth, screenHeight, bx0, by0, bx1, by1, color);
+        }
+
+        private static void DrawCenteredBlueSquarePixels(int[] pixels, int screenWidth, int screenHeight)
+        {
+            if (pixels == null || screenWidth <= 2 || screenHeight <= 2)
+            {
+                return;
+            }
+
+            int side = Math.Max(16, Math.Min(screenWidth, screenHeight) / 5);
+            int x0 = Clamp((screenWidth - side) / 2, 0, screenWidth - 1);
+            int y0 = Clamp((screenHeight - side) / 2, 0, screenHeight - 1);
+            int x1 = Clamp(x0 + side - 1, 0, screenWidth - 1);
+            int y1 = Clamp(y0 + side - 1, 0, screenHeight - 1);
+
+            int blue = Color.Blue.ToArgb();
+            for (int y = y0; y <= y1; y++)
+            {
+                DrawHorizontalPixels(pixels, screenWidth, screenHeight, x0, x1, y, blue);
+            }
+
+            DrawRectanglePixels(pixels, screenWidth, screenHeight, x0, y0, x1, y1, Color.White.ToArgb());
+
+            int diagSide = Math.Max(12, side / 3);
+            int dx0 = 8;
+            int dy0 = 8;
+            int dx1 = Clamp(dx0 + diagSide - 1, 0, screenWidth - 1);
+            int dy1 = Clamp(dy0 + diagSide - 1, 0, screenHeight - 1);
+            for (int y = dy0; y <= dy1; y++)
+            {
+                DrawHorizontalPixels(pixels, screenWidth, screenHeight, dx0, dx1, y, blue);
+            }
+            DrawRectanglePixels(pixels, screenWidth, screenHeight, dx0, dy0, dx1, dy1, Color.White.ToArgb());
+        }
+
         private static Color ScaleColor(Color color, double intensity)
         {
             int r = Clamp((int)(color.R * intensity), 0, 255);
@@ -645,6 +1362,151 @@ namespace AxOS.Hardware
             return ((0.2126 * color.R) + (0.7152 * color.G) + (0.0722 * color.B)) / 255.0;
         }
 
+        private static bool TrySamplePatternPixels(Canvas canvas, int screenWidth, int screenHeight, out int topArgb, out int midArgb, out int bottomArgb)
+        {
+            topArgb = 0;
+            midArgb = 0;
+            bottomArgb = 0;
+            if (canvas == null || screenWidth <= 0 || screenHeight <= 0)
+            {
+                return false;
+            }
+
+            int x = Clamp(screenWidth / 2, 0, screenWidth - 1);
+            int xTopLeft = Clamp(Math.Min(16, screenWidth - 1), 0, screenWidth - 1);
+            int yTop = Clamp(Math.Min(16, screenHeight - 1), 0, screenHeight - 1);
+            int yMid = Clamp(screenHeight / 2, 0, screenHeight - 1);
+            int yBottom = screenHeight - 1;
+
+            try
+            {
+                topArgb = canvas.GetPointColor(xTopLeft, yTop).ToArgb();
+                midArgb = canvas.GetPointColor(x, yMid).ToArgb();
+                bottomArgb = canvas.GetPointColor(x, yBottom).ToArgb();
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool TrySamplePatternPixelsFromBuffer(int[] pixels, int screenWidth, int screenHeight, out int topArgb, out int midArgb, out int bottomArgb)
+        {
+            topArgb = 0;
+            midArgb = 0;
+            bottomArgb = 0;
+            if (pixels == null || screenWidth <= 0 || screenHeight <= 0 || pixels.Length < screenWidth * screenHeight)
+            {
+                return false;
+            }
+
+            int x = Clamp(screenWidth / 2, 0, screenWidth - 1);
+            int xTopLeft = Clamp(Math.Min(16, screenWidth - 1), 0, screenWidth - 1);
+            int yTop = Clamp(Math.Min(16, screenHeight - 1), 0, screenHeight - 1);
+            int yMid = Clamp(screenHeight / 2, 0, screenHeight - 1);
+            int yBottom = screenHeight - 1;
+
+            topArgb = pixels[yTop * screenWidth + xTopLeft];
+            midArgb = pixels[yMid * screenWidth + x];
+            bottomArgb = pixels[yBottom * screenWidth + x];
+            return true;
+        }
+
+        private static void ClearPixels(int[] pixels, int argb)
+        {
+            if (pixels == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                pixels[i] = argb;
+            }
+        }
+
+        private static void DrawPointPixels(int[] pixels, int screenWidth, int screenHeight, int x, int y, int argb)
+        {
+            if (pixels == null || screenWidth <= 0 || screenHeight <= 0)
+            {
+                return;
+            }
+            if (x < 0 || y < 0 || x >= screenWidth || y >= screenHeight)
+            {
+                return;
+            }
+
+            int idx = y * screenWidth + x;
+            if (idx >= 0 && idx < pixels.Length)
+            {
+                pixels[idx] = argb;
+            }
+        }
+
+        private static void DrawHorizontalPixels(int[] pixels, int screenWidth, int screenHeight, int x0, int x1, int y, int argb)
+        {
+            if (pixels == null || screenWidth <= 0 || screenHeight <= 0 || y < 0 || y >= screenHeight)
+            {
+                return;
+            }
+
+            int sx0 = Clamp(x0, 0, screenWidth - 1);
+            int sx1 = Clamp(x1, 0, screenWidth - 1);
+            if (sx1 < sx0)
+            {
+                return;
+            }
+
+            int row = y * screenWidth;
+            int start = row + sx0;
+            int end = row + sx1;
+            if (start < 0)
+            {
+                start = 0;
+            }
+            if (end >= pixels.Length)
+            {
+                end = pixels.Length - 1;
+            }
+            for (int i = start; i <= end; i++)
+            {
+                pixels[i] = argb;
+            }
+        }
+
+        private static void DrawVerticalPixels(int[] pixels, int screenWidth, int screenHeight, int x, int y0, int y1, int argb)
+        {
+            if (pixels == null || screenWidth <= 0 || screenHeight <= 0 || x < 0 || x >= screenWidth)
+            {
+                return;
+            }
+
+            int sy0 = Clamp(y0, 0, screenHeight - 1);
+            int sy1 = Clamp(y1, 0, screenHeight - 1);
+            if (sy1 < sy0)
+            {
+                return;
+            }
+
+            for (int y = sy0; y <= sy1; y++)
+            {
+                int idx = (y * screenWidth) + x;
+                if (idx >= 0 && idx < pixels.Length)
+                {
+                    pixels[idx] = argb;
+                }
+            }
+        }
+
+        private static void DrawRectanglePixels(int[] pixels, int screenWidth, int screenHeight, int x0, int y0, int x1, int y1, int argb)
+        {
+            DrawHorizontalPixels(pixels, screenWidth, screenHeight, x0, x1, y0, argb);
+            DrawHorizontalPixels(pixels, screenWidth, screenHeight, x0, x1, y1, argb);
+            DrawVerticalPixels(pixels, screenWidth, screenHeight, x0, y0, y1, argb);
+            DrawVerticalPixels(pixels, screenWidth, screenHeight, x1, y0, y1, argb);
+        }
+
         private static double DotBound(float[] scene, float[] query, float[] color)
         {
             double dot = 0.0;
@@ -653,6 +1515,76 @@ namespace AxOS.Hardware
                 dot += scene[i] * query[i] * color[i];
             }
             return dot;
+        }
+
+        private static bool ShouldUseDisplayFlip(string canvasBackend)
+        {
+            if (string.IsNullOrEmpty(canvasBackend))
+            {
+                return true;
+            }
+
+            // SVGAII and VBE both may require explicit present to update scanout in some drivers.
+            if (canvasBackend.IndexOf("SVGAII", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return true;
+            }
+            if (canvasBackend.IndexOf("VBE", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return true;
+            }
+            if (canvasBackend.IndexOf("VGA", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return false;
+            }
+            return true;
+        }
+
+        private static int NormalizeDepthBits(int bits)
+        {
+            if (bits == 8 || bits == 16 || bits == 24 || bits == 32)
+            {
+                return bits;
+            }
+            return 32;
+        }
+
+        private static ColorDepth BitsToColorDepth(int bits)
+        {
+            if (bits == 8)
+            {
+                return ColorDepth.ColorDepth8;
+            }
+            if (bits == 16)
+            {
+                return ColorDepth.ColorDepth16;
+            }
+            if (bits == 24)
+            {
+                return ColorDepth.ColorDepth24;
+            }
+            return ColorDepth.ColorDepth32;
+        }
+
+        private static int ColorDepthToBits(ColorDepth depth)
+        {
+            if (depth == ColorDepth.ColorDepth8)
+            {
+                return 8;
+            }
+            if (depth == ColorDepth.ColorDepth16)
+            {
+                return 16;
+            }
+            if (depth == ColorDepth.ColorDepth24)
+            {
+                return 24;
+            }
+            if (depth == ColorDepth.ColorDepth32)
+            {
+                return 32;
+            }
+            return 0;
         }
 
         private static ulong MixSeed(ulong seed, string label)

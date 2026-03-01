@@ -26,4 +26,12 @@
         <PackageReference Include="Cosmos.System2" Version="0-*" NoWarn="NU1604" />
     </ItemGroup>
 
+    <ItemGroup>
+        <ProjectReference Include="..\AxOS.Plugs\AxOS.Plugs.csproj" ReferenceOutputAssembly="false" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PlugsReference Include="$(MSBuildProjectDirectory)\..\AxOS.Plugs\bin\Debug\net6.0\AxOS.Plugs.dll" />
+    </ItemGroup>
+
 </Project>
