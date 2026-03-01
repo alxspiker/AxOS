@@ -304,6 +304,7 @@ namespace AxOS.Hardware
             {
                 const int seconds = 20;
                 const int targetFps = 30;
+                const int manifoldUpdatesPerSecond = 1;
                 const string canvasBackend = "VGACanvas";
                 const int colorDepthBits = 8;
                 canvas = new VGACanvas(new Mode(320, 200, ColorDepth.ColorDepth8));
@@ -316,7 +317,9 @@ namespace AxOS.Hardware
                 int screenWidth = (int)canvas.Mode.Width;
                 int screenHeight = (int)canvas.Mode.Height;
                 int targetFrames = Math.Max(1, seconds * targetFps);
+                int manifoldUpdateInterval = Math.Max(1, targetFps / manifoldUpdatesPerSecond);
                 int renderedFrames = 0;
+                int manifoldUpdateCount = 0;
                 bool exitedByKey = false;
                 bool patternProbeCaptured = false;
                 int patternTopArgb = 0;
@@ -344,13 +347,19 @@ namespace AxOS.Hardware
                 while (renderedFrames < targetFrames)
                 {
                     double frameStartSeconds = ReadClockSeconds(cpuHz);
-                    if ((renderedFrames % 90) == 0 && TryGetTopManifoldTensor(manifold, out Tensor refreshedTensor))
+                    bool manifoldUpdatedThisFrame = (renderedFrames % manifoldUpdateInterval) == 0;
+                    if (manifoldUpdatedThisFrame)
                     {
-                        manifoldTensor = refreshedTensor;
+                        AdvanceManifoldFrame(manifold, renderedFrames + 1);
+                        manifoldUpdateCount++;
+                        if (TryGetTopManifoldTensor(manifold, out Tensor refreshedTensor))
+                        {
+                            manifoldTensor = refreshedTensor;
+                        }
                     }
                     BuildManifoldFieldNormalized(manifoldTensor, projectedField, renderedFrames);
 
-                    const float blend = 0.16f;
+                    float blend = manifoldUpdatedThisFrame ? 0.24f : 0.12f;
                     for (int i = 0; i < cells; i++)
                     {
                         // Temporal smoothing for softer transitions.
@@ -364,7 +373,8 @@ namespace AxOS.Hardware
                         screenWidth,
                         screenHeight,
                         ref previousStrongestCell,
-                        firstFrame);
+                        firstFrame,
+                        renderedFrames);
                     firstFrame = false;
                     if (!patternProbeCaptured)
                     {
@@ -434,7 +444,9 @@ namespace AxOS.Hardware
                                 ", fps_1s=" +
                                 intervalFps.ToString("0.00") +
                                 ", avg_fps=" +
-                                averageFps.ToString("0.00"));
+                                averageFps.ToString("0.00") +
+                                ", manifold_updates=" +
+                                manifoldUpdateCount);
                             lastFpsLogSeconds = afterFrameSeconds;
                             lastFpsLogFrame = renderedFrames;
                         }
@@ -508,18 +520,18 @@ namespace AxOS.Hardware
 
         private static void AdvanceManifoldFrame(ProgramManifold manifold, int frameIndex)
         {
+            int phase = frameIndex % 12;
             manifold.Enqueue(new DataStream
             {
                 DatasetType = "semantic_logic",
-                DatasetId = "live_" + frameIndex,
-                Payload = BuildLivePayload(frameIndex)
+                DatasetId = "live_phase_" + phase,
+                Payload = BuildLivePayload(phase)
             });
             manifold.RunBatch(1);
         }
 
-        private static string BuildLivePayload(int frameIndex)
+        private static string BuildLivePayload(int phase)
         {
-            int phase = frameIndex % 12;
             switch (phase)
             {
                 case 0: return "ALPHA BETA GAMMA ALPHA";
@@ -581,9 +593,6 @@ namespace AxOS.Hardware
             }
 
             int cells = field.Length;
-            uint phaseA = (uint)(frameIndex * 131);
-            uint phaseB = (uint)(frameIndex * 17);
-            uint phaseC = (uint)(frameIndex * 29);
             for (int i = 0; i < tensor.Total; i++)
             {
                 float energy = tensor.Data[i];
@@ -596,10 +605,10 @@ namespace AxOS.Hardware
                     continue;
                 }
 
-                uint h = (uint)(i * 2654435761u) ^ phaseA;
-                int c0 = (int)((h + phaseB) % (uint)cells);
-                int c1 = (int)(((h >> 8) + phaseC) % (uint)cells);
-                int c2 = (int)(((h >> 16) + (phaseA >> 3)) % (uint)cells);
+                uint h = (uint)(i * 2654435761u);
+                int c0 = (int)(h % (uint)cells);
+                int c1 = (int)((h >> 8) % (uint)cells);
+                int c2 = (int)((h >> 16) % (uint)cells);
                 field[c0] += energy;
                 field[c1] += energy * 0.60f;
                 field[c2] += energy * 0.35f;
@@ -629,6 +638,17 @@ namespace AxOS.Hardware
                 {
                     normalized = 1.0f;
                 }
+
+                // Cheap temporal drift so the map feels alive without full remap churn.
+                int wave = (frameIndex + (i * 3)) & 63;
+                int tri = wave < 32 ? wave : 63 - wave; // 0..31..0
+                float modulation = 0.85f + ((tri / 31.0f) * 0.30f); // 0.85..1.15
+                normalized *= modulation;
+                if (normalized > 1.0f)
+                {
+                    normalized = 1.0f;
+                }
+
                 field[i] = normalized;
             }
         }
@@ -640,7 +660,8 @@ namespace AxOS.Hardware
             int screenWidth,
             int screenHeight,
             ref int previousStrongestCell,
-            bool fullRedraw)
+            bool fullRedraw,
+            int frameIndex)
         {
             if (canvas == null || normalizedField == null || lastDrawnField == null || normalizedField.Length != lastDrawnField.Length)
             {
@@ -680,9 +701,12 @@ namespace AxOS.Hardware
 
             for (int i = 0; i < cells; i++)
             {
-                bool valueChanged = Math.Abs(normalizedField[i] - lastDrawnField[i]) >= 0.015f;
+                float delta = Math.Abs(normalizedField[i] - lastDrawnField[i]);
+                bool valueChanged = delta >= 0.015f;
+                bool valueChangedStrong = delta >= 0.060f;
                 bool highlightChanged = i == strongestCell || i == previousStrongestCell;
-                if (!fullRedraw && !valueChanged && !highlightChanged)
+                bool cadenceSlot = ((i + frameIndex) & 3) == 0;
+                if (!fullRedraw && !highlightChanged && !valueChangedStrong && (!cadenceSlot || !valueChanged))
                 {
                     continue;
                 }
