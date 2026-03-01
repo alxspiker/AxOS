@@ -74,6 +74,12 @@ namespace AxOS.Hardware
             public int MaxY = -1;
         }
 
+        private sealed class PaletteEntry
+        {
+            public Tensor Vector;
+            public Color Color;
+        }
+
         public const string FinalRenderProfileName = "vga8_blue_square_mouseonly_20s";
 
         public static RenderConfig CreateFinalRenderConfig()
@@ -497,6 +503,368 @@ namespace AxOS.Hardware
                 {
                 }
             }
+        }
+
+        public bool RunUiDemo(RenderConfig config, out RenderReport report, out string error)
+        {
+            report = new RenderReport();
+            error = string.Empty;
+
+            if (config == null)
+            {
+                error = "missing_config";
+                return false;
+            }
+
+            int seconds = Clamp(config.DurationSeconds, 1, 120);
+            int logicalWidth = Clamp(config.LogicalWidth, 8, 200);
+            int logicalHeight = Clamp(config.LogicalHeight, 6, 160);
+            int dim = Clamp(config.Dim, 32, 4096);
+            int fps = Clamp(config.TargetFps, 1, 30);
+
+            Canvas canvas = null;
+            DateTime startedUtc = DateTime.UtcNow;
+            try
+            {
+                const string canvasBackend = "VGACanvas";
+                const int colorDepthBits = 8;
+                canvas = new VGACanvas(new Mode(320, 200, ColorDepth.ColorDepth8));
+                if (canvas == null || canvas.Mode.Width <= 0 || canvas.Mode.Height <= 0)
+                {
+                    error = "graphics_canvas_unavailable";
+                    return false;
+                }
+
+                canvas.Clear(Color.Black);
+
+                int screenWidth = (int)canvas.Mode.Width;
+                int screenHeight = (int)canvas.Mode.Height;
+                if (logicalWidth > screenWidth)
+                {
+                    logicalWidth = screenWidth;
+                }
+                if (logicalHeight > screenHeight)
+                {
+                    logicalHeight = screenHeight;
+                }
+
+                Tensor[] coordinates = BuildUiCoordinates(logicalWidth, logicalHeight, dim, config.Seed);
+                PaletteEntry[] palette = BuildUiPalette(dim, config.Seed);
+                Tensor scene = BuildUiManifold(logicalWidth, logicalHeight, coordinates, palette);
+
+                int targetFrames = Math.Max(1, seconds * fps);
+                int renderedFrames = 0;
+                bool exitedByKey = false;
+                bool patternProbeCaptured = false;
+                int patternTopArgb = 0;
+                int patternMidArgb = 0;
+                int patternBottomArgb = 0;
+                DateTime nextFrameDue = startedUtc;
+
+                while (renderedFrames < targetFrames)
+                {
+                    if (renderedFrames == 0)
+                    {
+                        DrawUiScene(
+                            canvas,
+                            scene,
+                            logicalWidth,
+                            logicalHeight,
+                            coordinates,
+                            palette,
+                            screenWidth,
+                            screenHeight);
+
+                        patternProbeCaptured = TrySamplePatternPixels(
+                            canvas,
+                            screenWidth,
+                            screenHeight,
+                            out patternTopArgb,
+                            out patternMidArgb,
+                            out patternBottomArgb);
+                    }
+
+                    renderedFrames++;
+
+                    if (Sys.KeyboardManager.KeyAvailable && Sys.KeyboardManager.TryReadKey(out Sys.KeyEvent keyEvent))
+                    {
+                        char keyChar = keyEvent.KeyChar;
+                        if (keyChar == (char)27 || keyChar == '\r' || keyChar == '\n' || keyChar == 'q' || keyChar == 'Q')
+                        {
+                            exitedByKey = true;
+                            break;
+                        }
+                    }
+
+                    if ((DateTime.UtcNow - startedUtc).TotalSeconds >= seconds)
+                    {
+                        break;
+                    }
+
+                    nextFrameDue = nextFrameDue.AddMilliseconds(1000.0 / fps);
+                    while (DateTime.UtcNow < nextFrameDue)
+                    {
+                        if (Sys.KeyboardManager.KeyAvailable && Sys.KeyboardManager.TryReadKey(out Sys.KeyEvent waitKeyEvent))
+                        {
+                            char keyChar = waitKeyEvent.KeyChar;
+                            if (keyChar == (char)27 || keyChar == '\r' || keyChar == '\n' || keyChar == 'q' || keyChar == 'Q')
+                            {
+                                exitedByKey = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (exitedByKey)
+                    {
+                        break;
+                    }
+                }
+
+                TimeSpan elapsed = DateTime.UtcNow - startedUtc;
+                report.RenderedFrames = renderedFrames;
+                report.TargetFrames = targetFrames;
+                report.EncodedPoints = logicalWidth * logicalHeight;
+                report.Dim = dim;
+                report.ScreenWidth = screenWidth;
+                report.ScreenHeight = screenHeight;
+                report.LogicalWidth = logicalWidth;
+                report.LogicalHeight = logicalHeight;
+                report.TargetFps = fps;
+                report.DurationSeconds = seconds;
+                report.Threshold = 0.0;
+                report.AvgBestSimilarity = 0.0;
+                report.PeakBestSimilarity = 0.0;
+                report.ElapsedMilliseconds = (long)elapsed.TotalMilliseconds;
+                report.ExitedByKey = exitedByKey;
+                report.ColorDepthBits = colorDepthBits;
+                report.CanvasBackend = canvasBackend;
+                report.DisplayFlipUsed = false;
+                report.PatternProbeValid = patternProbeCaptured;
+                report.PatternProbeTopArgb = patternTopArgb;
+                report.PatternProbeMidArgb = patternMidArgb;
+                report.PatternProbeBottomArgb = patternBottomArgb;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = "render_failed:" + ex.Message;
+                return false;
+            }
+            finally
+            {
+                try
+                {
+                    canvas?.Disable();
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private static Tensor BuildUiManifold(int logicalWidth, int logicalHeight, Tensor[] coordinates, PaletteEntry[] palette)
+        {
+            if (coordinates == null || coordinates.Length == 0 || palette == null || palette.Length < 4)
+            {
+                return new Tensor();
+            }
+
+            int dim = coordinates[0].Total;
+            float[] sceneRaw = new float[dim];
+
+            for (int y = 0; y < logicalHeight; y++)
+            {
+                for (int x = 0; x < logicalWidth; x++)
+                {
+                    int idx = y * logicalWidth + x;
+                    float[] query = coordinates[idx].Data;
+
+                    for (int d = 0; d < dim; d++)
+                    {
+                        sceneRaw[d] += query[d] * palette[0].Vector.Data[d] * 0.4f;
+                    }
+
+                    if (x >= 4 && x <= 18 && y >= 3 && y <= 12)
+                    {
+                        for (int d = 0; d < dim; d++)
+                        {
+                            sceneRaw[d] += query[d] * palette[1].Vector.Data[d];
+                        }
+                    }
+
+                    if (x >= 12 && x <= 28 && y >= 8 && y <= 18)
+                    {
+                        for (int d = 0; d < dim; d++)
+                        {
+                            sceneRaw[d] += query[d] * palette[2].Vector.Data[d];
+                        }
+                    }
+
+                    if (y >= logicalHeight - 2)
+                    {
+                        for (int d = 0; d < dim; d++)
+                        {
+                            sceneRaw[d] += query[d] * palette[3].Vector.Data[d] * 1.5f;
+                        }
+                    }
+                }
+            }
+
+            return TensorOps.NormalizeL2(new Tensor(sceneRaw));
+        }
+
+        private static Tensor[] BuildUiCoordinates(int logicalWidth, int logicalHeight, int dim, int seed)
+        {
+            Tensor[] xBasis = new Tensor[logicalWidth];
+            Tensor[] yBasis = new Tensor[logicalHeight];
+            Tensor[] coordinates = new Tensor[logicalWidth * logicalHeight];
+
+            ulong baseSeed = ((ulong)(seed >= 0 ? seed : -seed)) + 1UL;
+            for (int x = 0; x < logicalWidth; x++)
+            {
+                xBasis[x] = TensorOps.RandomHypervector(dim, baseSeed + ((ulong)(x + 1) * 1315423911UL));
+            }
+            for (int y = 0; y < logicalHeight; y++)
+            {
+                yBasis[y] = TensorOps.RandomHypervector(dim, baseSeed + ((ulong)(y + 1) * 2654435761UL));
+            }
+
+            for (int y = 0; y < logicalHeight; y++)
+            {
+                for (int x = 0; x < logicalWidth; x++)
+                {
+                    int idx = y * logicalWidth + x;
+                    coordinates[idx] = TensorOps.NormalizeL2(TensorOps.Bind(xBasis[x], yBasis[y]));
+                }
+            }
+
+            return coordinates;
+        }
+
+        private static PaletteEntry[] BuildUiPalette(int dim, int seed)
+        {
+            ulong baseSeed = ((ulong)(seed >= 0 ? seed : -seed)) + 0x9E3779B9UL;
+            PaletteEntry[] palette = new PaletteEntry[4];
+
+            palette[0] = new PaletteEntry
+            {
+                Color = Color.FromArgb(30, 120, 230), // Azure desktop
+                Vector = TensorOps.RandomHypervector(dim, baseSeed + 0x1001UL)
+            };
+            palette[1] = new PaletteEntry
+            {
+                Color = Color.FromArgb(20, 210, 245), // Cyan window A
+                Vector = TensorOps.RandomHypervector(dim, baseSeed + 0x2003UL)
+            };
+            palette[2] = new PaletteEntry
+            {
+                Color = Color.FromArgb(245, 180, 30), // Amber window B
+                Vector = TensorOps.RandomHypervector(dim, baseSeed + 0x3007UL)
+            };
+            palette[3] = new PaletteEntry
+            {
+                Color = Color.FromArgb(210, 40, 170), // Magenta taskbar
+                Vector = TensorOps.RandomHypervector(dim, baseSeed + 0x4009UL)
+            };
+
+            return palette;
+        }
+
+        private static void DrawUiScene(
+            Canvas canvas,
+            Tensor scene,
+            int logicalWidth,
+            int logicalHeight,
+            Tensor[] coordinates,
+            PaletteEntry[] palette,
+            int screenWidth,
+            int screenHeight)
+        {
+            if (canvas == null || scene == null || scene.IsEmpty || coordinates == null || palette == null)
+            {
+                return;
+            }
+
+            int cellW = Math.Max(1, screenWidth / logicalWidth);
+            int cellH = Math.Max(1, screenHeight / logicalHeight);
+            int drawW = logicalWidth * cellW;
+            int drawH = logicalHeight * cellH;
+            int offX = Math.Max(0, (screenWidth - drawW) / 2);
+            int offY = Math.Max(0, (screenHeight - drawH) / 2);
+
+            for (int y = 0; y < logicalHeight; y++)
+            {
+                for (int x = 0; x < logicalWidth; x++)
+                {
+                    int idx = y * logicalWidth + x;
+                    int px = offX + (x * cellW);
+                    int py = offY + (y * cellH);
+                    Color color = DecodeUiCellColor(scene, coordinates[idx], palette);
+                    canvas.DrawFilledRectangle(color, px, py, cellW, cellH);
+                }
+            }
+        }
+
+        private static Color DecodeUiCellColor(Tensor scene, Tensor coordinate, PaletteEntry[] palette)
+        {
+            int dim = scene.Total;
+            if (coordinate == null || coordinate.Total == 0 || palette == null || palette.Length == 0)
+            {
+                return Color.Black;
+            }
+
+            if (coordinate.Total < dim)
+            {
+                dim = coordinate.Total;
+            }
+
+            float weightedR = 0.0f;
+            float weightedG = 0.0f;
+            float weightedB = 0.0f;
+            float totalWeight = 0.0f;
+
+            for (int p = 0; p < palette.Length; p++)
+            {
+                Tensor paletteVector = palette[p].Vector;
+                if (paletteVector == null || paletteVector.Total == 0)
+                {
+                    continue;
+                }
+
+                int localDim = dim;
+                if (paletteVector.Total < localDim)
+                {
+                    localDim = paletteVector.Total;
+                }
+
+                double dot = 0.0;
+                for (int i = 0; i < localDim; i++)
+                {
+                    double unbound = scene.Data[i] * coordinate.Data[i];
+                    dot += unbound * paletteVector.Data[i];
+                }
+
+                float w = (float)dot;
+                if (w <= 0.0f)
+                {
+                    continue;
+                }
+
+                totalWeight += w;
+                weightedR += palette[p].Color.R * w;
+                weightedG += palette[p].Color.G * w;
+                weightedB += palette[p].Color.B * w;
+            }
+
+            if (totalWeight <= 0.000001f)
+            {
+                return Color.Black;
+            }
+
+            int r = Clamp((int)(weightedR / totalWeight), 0, 255);
+            int g = Clamp((int)(weightedG / totalWeight), 0, 255);
+            int b = Clamp((int)(weightedB / totalWeight), 0, 255);
+            return Color.FromArgb(r, g, b);
         }
 
         private static bool TryGetTopManifoldTensor(ProgramManifold manifold, out Tensor tensor)

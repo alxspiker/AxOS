@@ -1015,7 +1015,7 @@ namespace AxOS
         private void RunStartupTestSequence()
         {
             WriteBootAndSerialLine("startup: running holo manifold");
-            HandleHolo(new List<string> { "holo", "manifold" });
+            HandleHolo(new List<string> { "holo", "ui" });
 
             WriteBootAndSerialLine("startup: tests complete, shutting down");
             ShutdownSystem();
@@ -1758,6 +1758,41 @@ namespace AxOS
                     break;
                 }
 
+                case "ui":
+                {
+                    if (_activeCommandFromSerial)
+                    {
+                        WriteInteractiveLine("holo_failed: graphics_requires_local_console");
+                        return;
+                    }
+
+                    HolographicRenderer.RenderConfig config = HolographicRenderer.CreateFinalRenderConfig();
+                    WriteInteractiveLine("holo_ui_start: profile=" + HolographicRenderer.FinalRenderProfileName + " (ESC/Enter/Q to exit)");
+
+                    if (!_holographicRenderer.RunUiDemo(config, out HolographicRenderer.RenderReport report, out string error))
+                    {
+                        WriteInteractiveLine("holo_ui_failed: " + error);
+                        return;
+                    }
+
+                    WriteInteractiveLine(
+                        "holo_ui_complete: frames=" +
+                        report.RenderedFrames +
+                        "/" +
+                        report.TargetFrames +
+                        ", elapsed_ms=" +
+                        report.ElapsedMilliseconds +
+                        ", mode=" +
+                        report.ScreenWidth +
+                        "x" +
+                        report.ScreenHeight +
+                        ", backend=" +
+                        report.CanvasBackend +
+                        ", exited_by_key=" +
+                        report.ExitedByKey);
+                    break;
+                }
+
                 case "manifold":
                 {
                     if (_activeCommandFromSerial)
@@ -1979,6 +2014,7 @@ namespace AxOS
             WriteInteractiveLine("holo commands:");
             WriteInteractiveLine("  holo demo");
             WriteInteractiveLine("  holo render");
+            WriteInteractiveLine("  holo ui");
             WriteInteractiveLine("  holo manifold");
             WriteInteractiveLine("  fixed profile: 20s, 640x480 request, logical 24x18, dim 48, mouse+mouseonly, bluesquare, vga8");
         }
