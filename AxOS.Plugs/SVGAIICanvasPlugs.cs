@@ -7,21 +7,20 @@ using IL2CPU.API.Attribs;
 
 namespace AxOS.Hardware
 {
-    // AuraOS-style scanout path: copy rows directly and force full-frame update.
+    // Compatibility path for environments where SVGAIICanvas.Display() double-buffer copy faults.
     [Plug(Target = typeof(SVGAIICanvas))]
     internal static class SVGAIICanvasPlugs
     {
-        private static uint[] _rowScratch = new uint[0];
-
         public static void DrawImage(
             SVGAIICanvas aThis,
             Image image,
             int x,
             int y,
+            bool preventOffBoundPixels,
             [FieldAccess(Name = "Cosmos.HAL.Drivers.Video.SVGAII.VMWareSVGAII Cosmos.System.Graphics.SVGAIICanvas.driver")]
             ref VMWareSVGAII driver)
         {
-            if (image == null || driver == null || driver.videoMemory == null)
+            if (aThis == null || image == null || driver == null || driver.videoMemory == null)
             {
                 return;
             }
@@ -36,87 +35,55 @@ namespace AxOS.Hardware
                 return;
             }
 
-            // Fast path when image fully fits on-screen: row copies to VRAM.
-            if (x >= 0 && y >= 0 && (x + width) <= screenW && (y + height) <= screenH)
+            int startX = x;
+            int startY = y;
+            int sourceX = 0;
+            int sourceY = 0;
+            int copyW = width;
+            int copyH = height;
+
+            // Always clip to prevent out-of-range writes on strict VRAM bounds.
+            if (preventOffBoundPixels || x < 0 || y < 0 || x + width > screenW || y + height > screenH)
             {
-                if (_rowScratch == null || _rowScratch.Length < width)
-                {
-                    _rowScratch = new uint[width];
-                }
+                startX = x < 0 ? 0 : x;
+                startY = y < 0 ? 0 : y;
+                sourceX = x < 0 ? -x : 0;
+                sourceY = y < 0 ? -y : 0;
+                copyW = width - sourceX;
+                copyH = height - sourceY;
 
-                uint frameBufferOffset = driver.FrameOffset;
-                uint frameBufferSize = driver.FrameSize;
-                uint bytesPerLine = (uint)screenW * 4U;
-                uint rowBytes = (uint)width * 4U;
+                int maxW = screenW - startX;
+                int maxH = screenH - startY;
+                if (copyW > maxW) copyW = maxW;
+                if (copyH > maxH) copyH = maxH;
+            }
 
-                for (int row = 0; row < height; row++)
-                {
-                    int src = row * width;
-                    for (int i = 0; i < width; i++)
-                    {
-                        _rowScratch[i] = unchecked((uint)data[src + i]);
-                    }
-                    uint dstByte = frameBufferOffset + ((uint)(y + row) * bytesPerLine) + ((uint)x * 4U);
-                    if (frameBufferSize > 0U)
-                    {
-                        uint rel = dstByte - frameBufferOffset;
-                        if (rel > frameBufferSize || rowBytes > frameBufferSize - rel)
-                        {
-                            continue;
-                        }
-                    }
-                    driver.videoMemory.Copy(dstByte, _rowScratch, 0, width);
-                }
+            if (copyW <= 0 || copyH <= 0)
+            {
                 return;
             }
 
-            // Clipped fallback.
-            for (int row = 0; row < height; row++)
+            int frameBase = (int)driver.FrameOffset;
+            int bytesPerLine = screenW * 4;
+            int rowBytes = copyW * 4;
+            int vramSize = (int)driver.videoMemory.Size;
+
+            for (int row = 0; row < copyH; row++)
             {
-                int dy = y + row;
-                if (dy < 0 || dy >= screenH)
+                int srcIndex = (sourceY + row) * width + sourceX;
+                int dstByte = frameBase + ((startY + row) * bytesPerLine) + (startX * 4);
+                if (dstByte < 0 || dstByte + rowBytes > vramSize)
                 {
                     continue;
                 }
 
-                int src = row * width;
-                for (int col = 0; col < width; col++)
-                {
-                    int dx = x + col;
-                    if (dx < 0 || dx >= screenW)
-                    {
-                        continue;
-                    }
-
-                    int idx = src + col;
-                    if (idx < 0 || idx >= data.Length)
-                    {
-                        continue;
-                    }
-
-                    driver.SetPixel((uint)dx, (uint)dy, unchecked((uint)data[idx]));
-                }
+                driver.videoMemory.Copy(dstByte, data, srcIndex, copyW);
             }
         }
 
-        public static void Display(
-            SVGAIICanvas aThis,
-            [FieldAccess(Name = "Cosmos.HAL.Drivers.Video.SVGAII.VMWareSVGAII Cosmos.System.Graphics.SVGAIICanvas.driver")]
-            ref VMWareSVGAII driver)
+        public static void Display(SVGAIICanvas aThis)
         {
-            if (aThis == null || driver == null)
-            {
-                return;
-            }
-
-            int screenW = (int)aThis.Mode.Width;
-            int screenH = (int)aThis.Mode.Height;
-            if (screenW <= 0 || screenH <= 0)
-            {
-                return;
-            }
-
-            driver.Update(0U, 0U, (uint)screenW, (uint)screenH);
+            // No-op on this environment: stock DoubleBufferUpdate path faults.
         }
     }
 }

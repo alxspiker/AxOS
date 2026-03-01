@@ -189,8 +189,8 @@ namespace AxOS.Hardware
                     }
                     else
                     {
-                        canvas = new VBECanvas(requestedMode);
-                        canvasBackend = "VBECanvas";
+                        canvas = FullScreenCanvas.GetFullScreenCanvas(requestedMode);
+                        canvasBackend = canvas == null ? "FullScreenCanvas" : canvas.GetType().Name;
                     }
                 }
                 catch (Exception ex)
@@ -206,8 +206,7 @@ namespace AxOS.Hardware
                 bool useDisplayFlip = ShouldUseDisplayFlip(canvasBackend);
                 if (forceSvga)
                 {
-                    // This stack faults in Display() on SVGAII.
-                    // Keep flip disabled and render via direct primitives.
+                    // Explicit SVGA mode still faults on Display() in this stack.
                     useDisplayFlip = false;
                 }
 
@@ -250,12 +249,12 @@ namespace AxOS.Hardware
                     sceneTensor = BuildSceneTensor(logicalWidth, logicalHeight, coordinates, palette, out encodedPoints);
                     frameSceneScratch = sceneTensor.Copy();
                 }
-                Bitmap svgaMouseFrame = null;
-                int[] svgaMousePixels = null;
-                if (forceSvga && mouseOnly)
+                Bitmap mouseFrame = null;
+                int[] mousePixels = null;
+                if (mouseOnly)
                 {
-                    svgaMouseFrame = new Bitmap((uint)screenWidth, (uint)screenHeight, ColorDepth.ColorDepth32);
-                    svgaMousePixels = svgaMouseFrame.RawData;
+                    mouseFrame = new Bitmap((uint)screenWidth, (uint)screenHeight, ColorDepth.ColorDepth32);
+                    mousePixels = mouseFrame.RawData;
                 }
 
                 int targetFrames = Math.Max(1, seconds * fps);
@@ -281,10 +280,10 @@ namespace AxOS.Hardware
                         bool renderedToPixelBuffer = false;
                         if (mouseOnly)
                         {
-                            if (svgaMousePixels != null)
+                            if (mousePixels != null)
                             {
                                 RenderMouseFramePixels(
-                                    svgaMousePixels,
+                                    mousePixels,
                                     screenWidth,
                                     screenHeight,
                                     phase,
@@ -331,9 +330,9 @@ namespace AxOS.Hardware
 
                         if (blueSquare)
                         {
-                            if (renderedToPixelBuffer && svgaMousePixels != null)
+                            if (renderedToPixelBuffer && mousePixels != null)
                             {
-                                DrawCenteredBlueSquarePixels(svgaMousePixels, screenWidth, screenHeight);
+                                DrawCenteredBlueSquarePixels(mousePixels, screenWidth, screenHeight);
                             }
                             else
                             {
@@ -346,9 +345,9 @@ namespace AxOS.Hardware
                             if (TryReadMouse(screenWidth, screenHeight, out int mouseX, out int mouseY, out Sys.MouseState mouseState))
                             {
                                 AccumulateMouseStats(mouseStats, mouseX, mouseY);
-                                if (renderedToPixelBuffer && svgaMousePixels != null)
+                                if (renderedToPixelBuffer && mousePixels != null)
                                 {
-                                    DrawMouseOverlayPixels(svgaMousePixels, screenWidth, screenHeight, mouseX, mouseY, mouseState);
+                                    DrawMouseOverlayPixels(mousePixels, screenWidth, screenHeight, mouseX, mouseY, mouseState);
                                 }
                                 else
                                 {
@@ -357,13 +356,13 @@ namespace AxOS.Hardware
                             }
                         }
 
-                        if (renderedToPixelBuffer && svgaMouseFrame != null)
+                        if (renderedToPixelBuffer && mouseFrame != null)
                         {
-                            if (!patternProbeCaptured && svgaMousePixels != null)
+                            if (!patternProbeCaptured && mousePixels != null)
                             {
-                                patternProbeCaptured = TrySamplePatternPixelsFromBuffer(svgaMousePixels, screenWidth, screenHeight, out patternTopArgb, out patternMidArgb, out patternBottomArgb);
+                                patternProbeCaptured = TrySamplePatternPixelsFromBuffer(mousePixels, screenWidth, screenHeight, out patternTopArgb, out patternMidArgb, out patternBottomArgb);
                             }
-                            canvas.DrawImage(svgaMouseFrame, 0, 0);
+                            canvas.DrawImage(mouseFrame, 0, 0);
                         }
                     }
                     catch (Exception ex)
@@ -375,6 +374,8 @@ namespace AxOS.Hardware
                             screenWidth +
                             "x" +
                             screenHeight +
+                            ", backend=" +
+                            canvasBackend +
                             ", logical=" +
                             logicalWidth +
                             "x" +
@@ -402,12 +403,14 @@ namespace AxOS.Hardware
                             error =
                                 "render_failed:display_stage:frame=" +
                                 renderedFrames +
-                                ", mode=" +
-                                screenWidth +
-                                "x" +
-                                screenHeight +
-                                ", detail=" +
-                                ex.Message;
+                            ", mode=" +
+                            screenWidth +
+                            "x" +
+                            screenHeight +
+                            ", backend=" +
+                            canvasBackend +
+                            ", detail=" +
+                            ex.Message;
                             return false;
                         }
                     }
